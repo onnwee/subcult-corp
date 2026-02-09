@@ -4,6 +4,8 @@
 // then writes them to ops_agent_memory with dedup via source_trace_id.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
+    ActionItem,
+    ConversationFormat,
     ConversationTurnEntry,
     MemoryType,
     PairwiseDrift,
@@ -11,9 +13,14 @@ import type {
 import { llmGenerate } from '../llm';
 import { writeMemory } from './memory';
 import { applyPairwiseDrifts } from './relationships';
+import { createProposalAndMaybeAutoApprove } from './proposal-service';
 
 const MAX_MEMORIES_PER_CONVERSATION = 6;
 const MIN_CONFIDENCE = 0.55;
+const MAX_ACTION_ITEMS_PER_CONVERSATION = 3;
+
+/** Formats where action items should be extracted */
+const ACTION_ITEM_FORMATS: ConversationFormat[] = ['standup'];
 
 interface ExtractedMemory {
     agent_id: string;
@@ -24,16 +31,22 @@ interface ExtractedMemory {
 }
 
 /**
- * Distill structured memories and relationship drift from a completed conversation.
+ * Distill structured memories, relationship drift, and action items
+ * from a completed conversation.
  * Each participant may gain 0-2 memories from the discussion.
  * Agent pair affinities drift based on interaction quality.
+ * For qualifying formats (standup), action items become proposals.
  *
+ * @param format - The conversation format (standup/debate/watercooler).
+ *                 If provided and qualifying, action items are extracted and
+ *                 converted to proposals.
  * @returns Number of memories successfully written
  */
 export async function distillConversationMemories(
     sb: SupabaseClient,
     sessionId: string,
     history: ConversationTurnEntry[],
+    format?: ConversationFormat,
 ): Promise<number> {
     if (history.length < 3) {
         // Too short — nothing meaningful to extract
@@ -47,7 +60,11 @@ export async function distillConversationMemories(
         .map(h => `${h.speaker}: ${h.dialogue}`)
         .join('\n');
 
-    const prompt = buildDistillationPrompt(transcript, speakers);
+    const prompt = buildDistillationPrompt(
+        transcript,
+        speakers,
+        format && ACTION_ITEM_FORMATS.includes(format),
+    );
 
     let rawResponse: string;
     try {
@@ -71,8 +88,11 @@ export async function distillConversationMemories(
         return 0;
     }
 
-    // Parse combined response (memories + pairwise drift)
-    const { memories, drifts } = parseCombinedResponse(rawResponse, speakers);
+    // Parse combined response (memories + pairwise drift + action items)
+    const { memories, drifts, actionItems } = parseCombinedResponse(
+        rawResponse,
+        speakers,
+    );
 
     // Write memories
     let written = 0;
@@ -108,6 +128,58 @@ export async function distillConversationMemories(
         }
     }
 
+    // Convert action items to proposals (for qualifying formats)
+    if (
+        actionItems.length > 0 &&
+        format &&
+        ACTION_ITEM_FORMATS.includes(format)
+    ) {
+        const validStepKinds = [
+            'scan_signals',
+            'draft_tweet',
+            'post_tweet',
+            'analyze',
+            'review',
+            'research',
+        ];
+        let proposalsCreated = 0;
+
+        for (const item of actionItems.slice(
+            0,
+            MAX_ACTION_ITEMS_PER_CONVERSATION,
+        )) {
+            try {
+                const stepKind =
+                    validStepKinds.includes(item.step_kind) ?
+                        item.step_kind
+                    :   'research';
+                const result = await createProposalAndMaybeAutoApprove(sb, {
+                    agent_id: item.agent_id,
+                    title: item.title,
+                    description: `Action item from ${format} conversation`,
+                    proposed_steps: [
+                        { kind: stepKind as 'research', payload: {} },
+                    ],
+                    source: 'conversation',
+                    source_trace_id: `action_item:${sessionId}:${proposalsCreated}`,
+                });
+
+                if (result.success) proposalsCreated++;
+            } catch (err) {
+                console.error(
+                    '[memory-distiller] Action item proposal failed:',
+                    (err as Error).message,
+                );
+            }
+        }
+
+        if (proposalsCreated > 0) {
+            console.log(
+                `[memory-distiller] Created ${proposalsCreated} proposals from action items in session ${sessionId}`,
+            );
+        }
+    }
+
     console.log(
         `[memory-distiller] Wrote ${written} memories from session ${sessionId}`,
     );
@@ -116,12 +188,14 @@ export async function distillConversationMemories(
 
 /**
  * Build the LLM prompt for memory extraction.
+ * When includeActionItems is true, the prompt also asks for action items.
  */
 function buildDistillationPrompt(
     transcript: string,
     speakers: string[],
+    includeActionItems: boolean = false,
 ): string {
-    return `Analyze this conversation and extract: (1) key memories, and (2) relationship drift between participants.
+    let prompt = `Analyze this conversation and extract: (1) key memories, and (2) relationship drift between participants.
 
 CONVERSATION:
 ${transcript}
@@ -138,7 +212,7 @@ MEMORY TYPES (use exactly these):
 RULES FOR MEMORIES:
 - Extract at most ${MAX_MEMORIES_PER_CONVERSATION} total memories across all participants
 - Each memory must have confidence between 0.0 and 1.0 (higher = more certain)
-- Only extract memories with confidence ≥ ${MIN_CONFIDENCE}
+- Only extract memories with confidence >= ${MIN_CONFIDENCE}
 - Assign each memory to the agent who stated or demonstrated it
 - Keep content under 200 characters
 - Include 1-3 relevant tags per memory
@@ -147,7 +221,20 @@ RULES FOR RELATIONSHIP DRIFT:
 - For each pair of participants who interacted meaningfully, output a drift value
 - drift ranges from -0.03 (disagreement/conflict) to +0.03 (alignment/collaboration)
 - Only include pairs where there was a notable interaction
-- Include a brief reason for the drift
+- Include a brief reason for the drift`;
+
+    if (includeActionItems) {
+        prompt += `
+
+RULES FOR ACTION ITEMS:
+- Extract up to ${MAX_ACTION_ITEMS_PER_CONVERSATION} actionable tasks that emerged from the conversation
+- Each action item should have a clear title, an assigned agent_id, and a step_kind
+- step_kind must be one of: scan_signals, draft_tweet, post_tweet, analyze, review, research
+- Only include items that were explicitly discussed or agreed upon
+- Assign to the agent best suited for the task based on the conversation`;
+    }
+
+    prompt += `
 
 Respond with a JSON object (no markdown, no explanation):
 {
@@ -167,19 +254,39 @@ Respond with a JSON object (no markdown, no explanation):
       "drift": 0.01,
       "reason": "aligned on priorities"
     }
-  ]
+  ]`;
+
+    if (includeActionItems) {
+        prompt += `,
+  "action_items": [
+    {
+      "title": "Research trending topics in AI",
+      "agent_id": "brain",
+      "step_kind": "research"
+    }
+  ]`;
+    }
+
+    prompt += `
 }`;
+
+    return prompt;
 }
 
 /**
- * Parse the LLM response into validated memory objects and pairwise drifts.
- * Handles both the new combined format { memories, pairwise_drift }
+ * Parse the LLM response into validated memory objects, pairwise drifts,
+ * and action items.
+ * Handles both the new combined format { memories, pairwise_drift, action_items }
  * and the legacy array format for backward compatibility.
  */
 function parseCombinedResponse(
     raw: string,
     validSpeakers: string[],
-): { memories: ExtractedMemory[]; drifts: PairwiseDrift[] } {
+): {
+    memories: ExtractedMemory[];
+    drifts: PairwiseDrift[];
+    actionItems: ActionItem[];
+} {
     // Try to extract JSON from the response
     let jsonStr = raw.trim();
 
@@ -197,23 +304,27 @@ function parseCombinedResponse(
         console.error(
             '[memory-distiller] Failed to parse LLM response as JSON',
         );
-        return { memories: [], drifts: [] };
+        return { memories: [], drifts: [], actionItems: [] };
     }
 
-    // Handle combined format: { memories: [...], pairwise_drift: [...] }
+    // Handle combined format: { memories: [...], pairwise_drift: [...], action_items: [...] }
     let rawMemories: unknown[];
     let rawDrifts: unknown[];
+    let rawActionItems: unknown[];
 
     if (typeof parsed === 'object' && parsed !== null && 'memories' in parsed) {
         const obj = parsed as Record<string, unknown>;
         rawMemories = Array.isArray(obj.memories) ? obj.memories : [];
         rawDrifts = Array.isArray(obj.pairwise_drift) ? obj.pairwise_drift : [];
+        rawActionItems =
+            Array.isArray(obj.action_items) ? obj.action_items : [];
     } else if (Array.isArray(parsed)) {
         // Legacy format: just an array of memories
         rawMemories = parsed;
         rawDrifts = [];
+        rawActionItems = [];
     } else {
-        return { memories: [], drifts: [] };
+        return { memories: [], drifts: [], actionItems: [] };
     }
 
     const validTypes: MemoryType[] = [
@@ -273,5 +384,23 @@ function parseCombinedResponse(
             reason: item.reason.substring(0, 200),
         }));
 
-    return { memories, drifts };
+    const actionItems: ActionItem[] = rawActionItems
+        .filter(
+            (item): item is ActionItem =>
+                typeof item === 'object' &&
+                item !== null &&
+                typeof (item as ActionItem).title === 'string' &&
+                (item as ActionItem).title.length > 0 &&
+                (item as ActionItem).title.length <= 200 &&
+                typeof (item as ActionItem).agent_id === 'string' &&
+                validSpeakers.includes((item as ActionItem).agent_id) &&
+                typeof (item as ActionItem).step_kind === 'string',
+        )
+        .map(item => ({
+            title: item.title.substring(0, 200),
+            agent_id: item.agent_id,
+            step_kind: item.step_kind,
+        }));
+
+    return { memories, drifts, actionItems };
 }

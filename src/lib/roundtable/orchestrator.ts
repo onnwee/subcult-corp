@@ -17,6 +17,7 @@ import {
     getAffinityFromMap,
     getInteractionType,
 } from '../ops/relationships';
+import { deriveVoiceModifiers } from '../ops/voice-evolution';
 
 /**
  * Build the system prompt for a speaker in a conversation.
@@ -29,6 +30,7 @@ function buildSystemPrompt(
     format: ConversationFormat,
     topic: string,
     interactionType?: string,
+    voiceModifiers?: string[],
 ): string {
     const voice = getVoice(speakerId);
     if (!voice) {
@@ -49,6 +51,12 @@ function buildSystemPrompt(
             challenge: 'Directly challenge the last point made — be bold',
         };
         prompt += `INTERACTION STYLE: ${interactionType} — ${toneGuides[interactionType] ?? 'respond naturally'}\n`;
+    }
+
+    if (voiceModifiers && voiceModifiers.length > 0) {
+        prompt += '\nPersonality evolution:\n';
+        prompt += voiceModifiers.map(m => `- ${m}`).join('\n');
+        prompt += '\n';
     }
 
     prompt += '\n';
@@ -114,6 +122,21 @@ export async function orchestrateConversation(
     // Load affinity map once for the entire conversation
     const affinityMap = await loadAffinityMap(sb);
 
+    // Derive voice modifiers once per participant (cached per conversation)
+    const voiceModifiersMap = new Map<string, string[]>();
+    for (const participant of session.participants) {
+        try {
+            const mods = await deriveVoiceModifiers(sb, participant);
+            voiceModifiersMap.set(participant, mods);
+        } catch (err) {
+            console.error(
+                `[orchestrator] Voice modifier derivation failed for ${participant}:`,
+                (err as Error).message,
+            );
+            voiceModifiersMap.set(participant, []);
+        }
+    }
+
     // Mark session as running
     await sb
         .from('ops_roundtable_sessions')
@@ -173,6 +196,7 @@ export async function orchestrateConversation(
                 session.format,
                 session.topic,
                 interactionType,
+                voiceModifiersMap.get(speaker),
             );
             const userPrompt = buildUserPrompt(
                 session.topic,
@@ -260,7 +284,12 @@ export async function orchestrateConversation(
 
         // Distill memories from the conversation (best-effort)
         try {
-            await distillConversationMemories(sb, session.id, history);
+            await distillConversationMemories(
+                sb,
+                session.id,
+                history,
+                session.format,
+            );
         } catch (err) {
             console.error(
                 '[orchestrator] Memory distillation failed:',

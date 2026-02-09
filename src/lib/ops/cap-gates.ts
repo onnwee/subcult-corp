@@ -68,6 +68,7 @@ async function checkWriteContentGate(sb: SupabaseClient): Promise<GateResult> {
     return { ok: true };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function checkDeployGate(_sb: SupabaseClient): Promise<GateResult> {
     // Deploy gate — always blocked unless manually approved
     return {

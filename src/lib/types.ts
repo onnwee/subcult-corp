@@ -356,3 +356,27 @@ export type InteractionType =
     | 'neutral'
     | 'critical'
     | 'challenge';
+
+// ─── Initiative Types ───
+
+export type InitiativeStatus =
+    | 'pending'
+    | 'processing'
+    | 'completed'
+    | 'failed';
+
+export interface InitiativeQueueEntry {
+    id: string;
+    agent_id: string;
+    status: InitiativeStatus;
+    context: Record<string, unknown>;
+    created_at: string;
+    processed_at?: string;
+    result?: Record<string, unknown>;
+}
+
+export interface ActionItem {
+    title: string;
+    agent_id: string;
+    step_kind: string;
+}

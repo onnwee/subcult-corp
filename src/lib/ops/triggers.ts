@@ -1,12 +1,7 @@
 // Trigger evaluation system
 // Heartbeat calls evaluateTriggers() → checks each rule → fires proposals
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type {
-    TriggerRule,
-    TriggerCheckResult,
-    ProposalInput,
-    MemoryCache,
-} from '../types';
+import type { TriggerRule, TriggerCheckResult, MemoryCache } from '../types';
 import { createProposalAndMaybeAutoApprove } from './proposal-service';
 import { enrichTopicWithMemory } from './memory-enrichment';
 
@@ -156,6 +151,7 @@ async function checkMissionFailed(
     sb: SupabaseClient,
     conditions: Record<string, unknown>,
     actionConfig: Record<string, unknown>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _memoryCache: MemoryCache,
 ): Promise<TriggerCheckResult> {
     const lookbackMinutes = (conditions.lookback_minutes as number) ?? 60;
@@ -200,6 +196,7 @@ async function checkContentPublished(
     sb: SupabaseClient,
     conditions: Record<string, unknown>,
     actionConfig: Record<string, unknown>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _memoryCache: MemoryCache,
 ): Promise<TriggerCheckResult> {
     const lookbackMinutes = (conditions.lookback_minutes as number) ?? 60;
@@ -375,6 +372,7 @@ async function checkProactiveAnalyzeOps(
     sb: SupabaseClient,
     _conditions: Record<string, unknown>,
     actionConfig: Record<string, unknown>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _memoryCache: MemoryCache,
 ): Promise<TriggerCheckResult> {
     const targetAgent = (actionConfig.target_agent as string) ?? 'observer';

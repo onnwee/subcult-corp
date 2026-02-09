@@ -1,0 +1,34 @@
+[Unit]
+Description=SUBCULT OPS — Step Worker (TEMPLATE)
+After=network.target
+Wants=network-online.target
+
+# ─── HOW TO USE THIS TEMPLATE ───
+# Copy this file for each step-kind worker you create:
+#   cp subcult-step-worker@.service subcult-x-autopost.service
+#   cp subcult-step-worker@.service subcult-analyze-worker.service
+# Then edit ExecStart to point to the correct worker script.
+
+[Service]
+Type=simple
+User=subcult
+Group=subcult
+WorkingDirectory=/opt/subcult-corp
+# EDIT THIS: point to your worker script
+ExecStart=/usr/bin/node /opt/subcult-corp/scripts/%i-worker/worker.mjs
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=subcult-%i
+Environment=NODE_ENV=production
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/subcult-corp
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

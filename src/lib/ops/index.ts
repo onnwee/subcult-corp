@@ -25,3 +25,14 @@ export {
     applyPairwiseDrifts,
     getInteractionType,
 } from './relationships';
+export {
+    checkAndQueueInitiatives,
+    maybeQueueInitiative,
+    claimNextInitiative,
+    completeInitiative,
+    failInitiative,
+} from './initiative';
+export {
+    deriveVoiceModifiers,
+    clearVoiceModifierCache,
+} from './voice-evolution';

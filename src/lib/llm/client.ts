@@ -1,6 +1,6 @@
 // LLM client — OpenAI-compatible API abstraction
 // Works with OpenAI, Anthropic (via proxy), local models, etc.
-import type { LLMMessage, LLMGenerateOptions } from '../types';
+import type { LLMGenerateOptions } from '../types';
 
 const LLM_BASE_URL = process.env.LLM_BASE_URL ?? 'https://api.openai.com/v1';
 const LLM_API_KEY = process.env.LLM_API_KEY ?? '';

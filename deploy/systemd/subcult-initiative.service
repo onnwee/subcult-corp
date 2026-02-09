@@ -1,0 +1,27 @@
+[Unit]
+Description=SUBCULT OPS — Initiative Worker
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=subcult
+Group=subcult
+WorkingDirectory=/opt/subcult-corp
+ExecStart=/usr/bin/node /opt/subcult-corp/scripts/initiative-worker/worker.mjs
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=subcult-initiative
+Environment=NODE_ENV=production
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/subcult-corp
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

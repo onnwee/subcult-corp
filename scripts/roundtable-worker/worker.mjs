@@ -197,9 +197,114 @@ function selectNextSpeaker(participants, lastSpeaker, history, affinityMap) {
     return participants[participants.length - 1];
 }
 
+// ─── Voice Evolution ───
+// Derive personality modifiers from agent memory stats.
+// Rule-driven — deterministic, $0 cost, debuggable.
+
+async function aggregateMemoryStats(agentId) {
+    const { data: memories, error } = await sb
+        .from('ops_agent_memory')
+        .select('type, confidence, tags')
+        .eq('agent_id', agentId)
+        .is('superseded_by', null)
+        .gte('confidence', 0.55);
+
+    if (error || !memories?.length) {
+        return {
+            total: 0,
+            insight_count: 0,
+            pattern_count: 0,
+            strategy_count: 0,
+            preference_count: 0,
+            lesson_count: 0,
+            top_tags: [],
+            tags: [],
+            avg_confidence: 0,
+        };
+    }
+
+    const typeCounts = {};
+    const tagCounts = {};
+    let totalConfidence = 0;
+
+    for (const mem of memories) {
+        typeCounts[mem.type] = (typeCounts[mem.type] ?? 0) + 1;
+        totalConfidence += Number(mem.confidence);
+        if (Array.isArray(mem.tags)) {
+            for (const tag of mem.tags) {
+                if (typeof tag === 'string' && tag !== 'conversation') {
+                    tagCounts[tag] = (tagCounts[tag] ?? 0) + 1;
+                }
+            }
+        }
+    }
+
+    const sortedTags = Object.entries(tagCounts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([tag]) => tag);
+
+    return {
+        total: memories.length,
+        insight_count: typeCounts['insight'] ?? 0,
+        pattern_count: typeCounts['pattern'] ?? 0,
+        strategy_count: typeCounts['strategy'] ?? 0,
+        preference_count: typeCounts['preference'] ?? 0,
+        lesson_count: typeCounts['lesson'] ?? 0,
+        top_tags: sortedTags.slice(0, 5),
+        tags: sortedTags,
+        avg_confidence:
+            memories.length > 0 ? totalConfidence / memories.length : 0,
+    };
+}
+
+async function deriveVoiceModifiers(agentId) {
+    const stats = await aggregateMemoryStats(agentId);
+    if (stats.total < 5) return [];
+
+    const modifiers = [];
+
+    if (stats.lesson_count > 10 && stats.tags.includes('engagement')) {
+        modifiers.push('Reference what works in engagement when relevant');
+    }
+    if (stats.pattern_count > 5 && stats.top_tags[0] === 'content') {
+        modifiers.push("You've developed expertise in content strategy");
+    }
+    if (stats.strategy_count > 8) {
+        modifiers.push('You think strategically about long-term plans');
+    }
+    if (stats.insight_count > 10 && stats.tags.includes('analytics')) {
+        modifiers.push('Lead with data and numbers when making points');
+    }
+    if (stats.pattern_count > 8) {
+        modifiers.push('You naturally spot patterns \u2014 mention them');
+    }
+    if (stats.lesson_count > 15) {
+        modifiers.push('Draw on past lessons learned when advising others');
+    }
+    if (stats.avg_confidence > 0.8 && stats.total > 20) {
+        modifiers.push(
+            'Speak with authority \u2014 your track record is strong',
+        );
+    }
+    if (stats.preference_count > 5) {
+        modifiers.push(
+            'You have strong opinions \u2014 express them confidently',
+        );
+    }
+
+    return modifiers.slice(0, 3);
+}
+
 // ─── Prompt Building ───
 
-function buildSystemPrompt(speakerId, history, format, topic, interactionType) {
+function buildSystemPrompt(
+    speakerId,
+    history,
+    format,
+    topic,
+    interactionType,
+    voiceModifiers,
+) {
     const voice = VOICES[speakerId];
     if (!voice) return `You are ${speakerId}. Speak naturally and concisely.`;
 
@@ -217,6 +322,12 @@ function buildSystemPrompt(speakerId, history, format, topic, interactionType) {
             challenge: 'Directly challenge the last point made — be bold',
         };
         prompt += `INTERACTION STYLE: ${interactionType} — ${toneGuides[interactionType] ?? 'respond naturally'}\n`;
+    }
+
+    if (voiceModifiers && voiceModifiers.length > 0) {
+        prompt += '\nPersonality evolution:\n';
+        prompt += voiceModifiers.map(m => `- ${m}`).join('\n');
+        prompt += '\n';
     }
 
     prompt += '\n';
@@ -262,6 +373,21 @@ async function orchestrateSession(session) {
 
     // Load affinity map once for the whole conversation
     const affinityMap = await loadAffinityMap();
+
+    // Derive voice modifiers once per participant
+    const voiceModifiersMap = {};
+    for (const participant of session.participants) {
+        try {
+            voiceModifiersMap[participant] =
+                await deriveVoiceModifiers(participant);
+        } catch (err) {
+            console.error(
+                `    [voice] Modifier derivation failed for ${participant}:`,
+                err.message,
+            );
+            voiceModifiersMap[participant] = [];
+        }
+    }
 
     console.log(
         `  ▶ Starting ${session.format}: "${session.topic}" (${maxTurns} turns)`,
@@ -322,6 +448,7 @@ async function orchestrateSession(session) {
                 session.format,
                 session.topic,
                 interactionType,
+                voiceModifiersMap[speaker],
             );
             const userPrompt = buildUserPrompt(
                 session.topic,
@@ -435,8 +562,18 @@ async function orchestrateSession(session) {
 
 const MAX_MEMORIES_PER_CONVERSATION = 6;
 const MIN_MEMORY_CONFIDENCE = 0.55;
+const MAX_ACTION_ITEMS_PER_CONVERSATION = 3;
+const ACTION_ITEM_FORMATS = ['standup'];
+const VALID_STEP_KINDS = [
+    'scan_signals',
+    'draft_tweet',
+    'post_tweet',
+    'analyze',
+    'review',
+    'research',
+];
 
-async function distillMemories(sessionId, history) {
+async function distillMemories(sessionId, history, format) {
     if (history.length < 3) return 0;
 
     const speakers = [...new Set(history.map(h => h.speaker))];
@@ -444,7 +581,9 @@ async function distillMemories(sessionId, history) {
         .map(h => `${h.speaker}: ${h.dialogue}`)
         .join('\n');
 
-    const prompt = `Analyze this conversation and extract: (1) key memories, and (2) relationship drift between participants.
+    const includeActionItems = format && ACTION_ITEM_FORMATS.includes(format);
+
+    let promptText = `Analyze this conversation and extract: (1) key memories, and (2) relationship drift between participants.
 
 CONVERSATION:
 ${transcript}
@@ -461,7 +600,7 @@ MEMORY TYPES (use exactly these):
 RULES FOR MEMORIES:
 - Extract at most ${MAX_MEMORIES_PER_CONVERSATION} total memories across all participants
 - Each memory must have confidence between 0.0 and 1.0 (higher = more certain)
-- Only extract memories with confidence ≥ ${MIN_MEMORY_CONFIDENCE}
+- Only extract memories with confidence >= ${MIN_MEMORY_CONFIDENCE}
 - Assign each memory to the agent who stated or demonstrated it
 - Keep content under 200 characters
 - Include 1-3 relevant tags per memory
@@ -470,7 +609,20 @@ RULES FOR RELATIONSHIP DRIFT:
 - For each pair of participants who interacted meaningfully, output a drift value
 - drift ranges from -0.03 (disagreement/conflict) to +0.03 (alignment/collaboration)
 - Only include pairs where there was a notable interaction
-- Include a brief reason for the drift
+- Include a brief reason for the drift`;
+
+    if (includeActionItems) {
+        promptText += `
+
+RULES FOR ACTION ITEMS:
+- Extract up to ${MAX_ACTION_ITEMS_PER_CONVERSATION} actionable tasks that emerged from the conversation
+- Each action item should have a clear title, an assigned agent_id, and a step_kind
+- step_kind must be one of: ${VALID_STEP_KINDS.join(', ')}
+- Only include items that were explicitly discussed or agreed upon
+- Assign to the agent best suited for the task based on the conversation`;
+    }
+
+    promptText += `
 
 Respond with a JSON object (no markdown, no explanation):
 {
@@ -490,7 +642,20 @@ Respond with a JSON object (no markdown, no explanation):
       "drift": 0.01,
       "reason": "aligned on priorities"
     }
-  ]
+  ]`;
+
+    if (includeActionItems) {
+        promptText += `,
+  "action_items": [
+    {
+      "title": "Research trending topics in AI",
+      "agent_id": "brain",
+      "step_kind": "research"
+    }
+  ]`;
+    }
+
+    promptText += `
 }`;
 
     let rawResponse;
@@ -502,7 +667,7 @@ Respond with a JSON object (no markdown, no explanation):
                     content:
                         'You are an analyst that extracts structured knowledge and relationship dynamics from conversations. Output valid JSON only.',
                 },
-                { role: 'user', content: prompt },
+                { role: 'user', content: promptText },
             ],
             0.3,
         );
@@ -527,9 +692,10 @@ Respond with a JSON object (no markdown, no explanation):
         return 0;
     }
 
-    // Handle both combined { memories, pairwise_drift } and legacy array format
+    // Handle both combined { memories, pairwise_drift, action_items } and legacy array format
     let rawMemories;
     let rawDrifts;
+    let rawActionItems;
     if (
         parsed &&
         typeof parsed === 'object' &&
@@ -539,9 +705,12 @@ Respond with a JSON object (no markdown, no explanation):
         rawMemories = Array.isArray(parsed.memories) ? parsed.memories : [];
         rawDrifts =
             Array.isArray(parsed.pairwise_drift) ? parsed.pairwise_drift : [];
+        rawActionItems =
+            Array.isArray(parsed.action_items) ? parsed.action_items : [];
     } else if (Array.isArray(parsed)) {
         rawMemories = parsed;
         rawDrifts = [];
+        rawActionItems = [];
     } else {
         return 0;
     }
@@ -669,6 +838,59 @@ Respond with a JSON object (no markdown, no explanation):
         );
     }
 
+    // Convert action items to proposals (for qualifying formats)
+    if (includeActionItems && rawActionItems.length > 0) {
+        const validActionItems = rawActionItems
+            .filter(
+                item =>
+                    item &&
+                    typeof item.title === 'string' &&
+                    item.title.length > 0 &&
+                    item.title.length <= 200 &&
+                    typeof item.agent_id === 'string' &&
+                    speakers.includes(item.agent_id) &&
+                    typeof item.step_kind === 'string',
+            )
+            .slice(0, MAX_ACTION_ITEMS_PER_CONVERSATION);
+
+        let proposalsCreated = 0;
+        for (const item of validActionItems) {
+            try {
+                const stepKind =
+                    VALID_STEP_KINDS.includes(item.step_kind) ?
+                        item.step_kind
+                    :   'research';
+
+                const { data, error } = await sb
+                    .from('ops_mission_proposals')
+                    .insert({
+                        agent_id: item.agent_id,
+                        title: item.title.substring(0, 100),
+                        description: `Action item from ${format} conversation`,
+                        proposed_steps: [{ kind: stepKind, payload: {} }],
+                        source: 'conversation',
+                        source_trace_id: `action_item:${sessionId}:${proposalsCreated}`,
+                        status: 'pending',
+                    })
+                    .select('id')
+                    .single();
+
+                if (!error && data) proposalsCreated++;
+            } catch (err) {
+                console.error(
+                    '  [distiller] Action item proposal failed:',
+                    err.message,
+                );
+            }
+        }
+
+        if (proposalsCreated > 0) {
+            console.log(
+                `  [distiller] Created ${proposalsCreated} proposals from action items in session ${sessionId}`,
+            );
+        }
+    }
+
     return written;
 }
 
@@ -718,7 +940,7 @@ async function pollAndProcess() {
 
         // Distill memories from the conversation (best-effort)
         try {
-            await distillMemories(session.id, history);
+            await distillMemories(session.id, history, session.format);
         } catch (distillErr) {
             console.error(
                 '  [worker] Memory distillation failed:',

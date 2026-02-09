@@ -1,7 +1,7 @@
 // Proposal Service — the single entry point for all proposal creation
 // Everything goes through here: agent initiatives, triggers, reactions, conversations
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { ProposalInput, StepKind } from '../types';
+import type { ProposalInput } from '../types';
 import { checkCapGates } from './cap-gates';
 import { getPolicy } from './policy';
 import { emitEventAndCheckReactions } from './events';

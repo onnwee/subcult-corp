@@ -10,6 +10,7 @@ import { recoverStaleSteps } from '@/lib/ops/recovery';
 import { getPolicy } from '@/lib/ops/policy';
 import { checkScheduleAndEnqueue } from '@/lib/roundtable/orchestrator';
 import { learnFromOutcomes } from '@/lib/ops/outcome-learner';
+import { checkAndQueueInitiatives } from '@/lib/ops/initiative';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 25; // seconds (Vercel limit)
@@ -76,6 +77,14 @@ export async function GET(req: NextRequest) {
     } catch (err) {
         results.learning = { error: (err as Error).message };
         console.error('[heartbeat] Outcome learning failed:', err);
+    }
+
+    // ── Phase 6: Queue agent initiatives ──
+    try {
+        results.initiatives = await checkAndQueueInitiatives(sb);
+    } catch (err) {
+        results.initiatives = { error: (err as Error).message };
+        console.error('[heartbeat] Initiative queueing failed:', err);
     }
 
     const durationMs = Date.now() - startTime;
