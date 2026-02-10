@@ -11,7 +11,10 @@ import { existsSync } from 'fs';
 const SCRIPTS_DIR = new URL('./', import.meta.url).pathname;
 
 const scripts = [
-    { file: 'seed-agent-registry.mjs', desc: 'Agent registry (OpenClaw personalities)' },
+    {
+        file: 'seed-agent-registry.mjs',
+        desc: 'Agent registry (OpenClaw personalities)',
+    },
     { file: 'seed-ops-policy.mjs', desc: 'Core policies' },
     {
         file: 'seed-trigger-rules.mjs',
@@ -22,7 +25,7 @@ const scripts = [
         desc: 'Proactive triggers (disabled by default)',
     },
     { file: 'seed-roundtable-policy.mjs', desc: 'Roundtable policies' },
-    { file: 'seed-relationships.mjs', desc: 'Agent relationships (3 pairs)' },
+    { file: 'seed-relationships.mjs', desc: 'Agent relationships (10 pairs)' },
 ];
 
 console.log('╔══════════════════════════════════════╗');

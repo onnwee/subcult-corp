@@ -4,14 +4,15 @@
 // Configures the roundtable conversation system for: Chora, Subrosa, Thaum, Praxis (+ Mux coordination)
 // The roundtable system starts DISABLED. Enable once heartbeat + workers loop is healthy.
 
-import { createClient } from '@supabase/supabase-js';
+import postgres from 'postgres';
 import dotenv from 'dotenv';
 dotenv.config({ path: ['.env.local', '.env'] });
 
-const sb = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SECRET_KEY,
-);
+if (!process.env.DATABASE_URL) {
+    console.error('Missing DATABASE_URL');
+    process.exit(1);
+}
+const sql = postgres(process.env.DATABASE_URL);
 
 const roundtablePolicies = [
     // ─── Main roundtable toggle ───
@@ -68,14 +69,17 @@ async function seed() {
     console.log('Seeding roundtable policies...\n');
 
     for (const policy of roundtablePolicies) {
-        const { error } = await sb
-            .from('ops_policy')
-            .upsert(policy, { onConflict: 'key' });
-
-        if (error) {
-            console.error(`  ✗ ${policy.key}: ${error.message}`);
-        } else {
+        try {
+            await sql`
+                INSERT INTO ops_policy (key, value, description)
+                VALUES (${policy.key}, ${JSON.stringify(policy.value)}::jsonb, ${policy.description})
+                ON CONFLICT (key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    description = EXCLUDED.description
+            `;
             console.log(`  ✓ ${policy.key}`);
+        } catch (err) {
+            console.error(`  ✗ ${policy.key}: ${err.message}`);
         }
     }
 
@@ -86,6 +90,7 @@ async function seed() {
         '\n  2. Run a few heartbeat cycles',
         '\n  3. Set roundtable_policy.enabled = true when ready',
     );
+    await sql.end();
 }
 
 seed().catch(err => {

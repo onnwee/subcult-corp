@@ -1,56 +1,41 @@
-// Policy helper — read from ops_policy table
-import type { SupabaseClient } from '@supabase/supabase-js';
+// Policy store with 30-second TTL cache
+import { sql } from '@/lib/db';
 
-// In-memory cache with TTL (avoid hammering the DB)
+const CACHE_TTL_MS = 30_000;
 const policyCache = new Map<
     string,
-    { value: Record<string, unknown>; expiresAt: number }
+    { value: Record<string, unknown>; ts: number }
 >();
-const CACHE_TTL_MS = 30_000; // 30 seconds
 
-export async function getPolicy(
-    sb: SupabaseClient,
-    key: string,
-): Promise<Record<string, unknown>> {
-    // Check cache
+export async function getPolicy(key: string): Promise<Record<string, unknown>> {
     const cached = policyCache.get(key);
-    if (cached && Date.now() < cached.expiresAt) {
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
         return cached.value;
     }
 
-    const { data, error } = await sb
-        .from('ops_policy')
-        .select('value')
-        .eq('key', key)
-        .maybeSingle();
+    const [row] = await sql<[{ value: Record<string, unknown> }?]>`
+        SELECT value FROM ops_policy WHERE key = ${key}
+    `;
 
-    if (error) {
-        console.error(
-            `[policy] Failed to read policy "${key}":`,
-            error.message,
-        );
-        return {};
-    }
-
-    const value = (data?.value as Record<string, unknown>) ?? {};
-    policyCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+    const value = row?.value ?? { enabled: false };
+    policyCache.set(key, { value, ts: Date.now() });
     return value;
 }
 
 export async function setPolicy(
-    sb: SupabaseClient,
     key: string,
     value: Record<string, unknown>,
+    description?: string,
 ): Promise<void> {
-    const { error } = await sb
-        .from('ops_policy')
-        .upsert({ key, value, updated_at: new Date().toISOString() });
+    await sql`
+        INSERT INTO ops_policy (key, value, description, updated_at)
+        VALUES (${key}, ${JSON.stringify(value)}::jsonb, ${description ?? null}, NOW())
+        ON CONFLICT (key) DO UPDATE SET
+            value = EXCLUDED.value,
+            description = COALESCE(EXCLUDED.description, ops_policy.description),
+            updated_at = NOW()
+    `;
 
-    if (error) {
-        throw new Error(`Failed to set policy "${key}": ${error.message}`);
-    }
-
-    // Invalidate cache
     policyCache.delete(key);
 }
 

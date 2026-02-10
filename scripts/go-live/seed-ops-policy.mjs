@@ -1,14 +1,15 @@
 // Seed core policies into ops_policy
 // Run: node scripts/go-live/seed-ops-policy.mjs
 
-import { createClient } from '@supabase/supabase-js';
+import postgres from 'postgres';
 import dotenv from 'dotenv';
 dotenv.config({ path: ['.env.local', '.env'] });
 
-const sb = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SECRET_KEY,
-);
+if (!process.env.DATABASE_URL) {
+    console.error('Missing DATABASE_URL');
+    process.exit(1);
+}
+const sql = postgres(process.env.DATABASE_URL);
 
 const policies = [
     {
@@ -28,7 +29,8 @@ const policies = [
                 'classify_pattern',
             ],
         },
-        description: 'Which step kinds can be auto-approved without human review',
+        description:
+            'Which step kinds can be auto-approved without human review',
     },
     {
         key: 'x_daily_quota',
@@ -43,7 +45,8 @@ const policies = [
     {
         key: 'initiative_policy',
         value: { enabled: false },
-        description: 'Agent initiative system (Thaum generates ideas; keep off until stable)',
+        description:
+            'Agent initiative system (Thaum generates ideas; keep off until stable)',
     },
     {
         key: 'memory_influence_policy',
@@ -192,18 +195,22 @@ async function seed() {
     console.log('Seeding ops_policy...');
 
     for (const policy of policies) {
-        const { error } = await sb
-            .from('ops_policy')
-            .upsert(policy, { onConflict: 'key' });
-
-        if (error) {
-            console.error(`  ✗ ${policy.key}: ${error.message}`);
-        } else {
-            console.log(`  ✓ ${policy.key}`);
+        try {
+            await sql`
+                INSERT INTO ops_policy (key, value, description)
+                VALUES (${policy.key}, ${JSON.stringify(policy.value)}::jsonb, ${policy.description})
+                ON CONFLICT (key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    description = EXCLUDED.description
+            `;
+            console.log(`  \u2713 ${policy.key}`);
+        } catch (err) {
+            console.error(`  \u2717 ${policy.key}: ${err.message}`);
         }
     }
 
     console.log('Done.');
+    await sql.end();
 }
 
 seed().catch(console.error);

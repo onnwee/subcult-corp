@@ -1,6 +1,6 @@
 // /api/ops/roundtable — Trigger and list roundtable conversations
 import { NextRequest, NextResponse } from 'next/server';
-import { getServiceClient } from '@/lib/supabase';
+import { sql } from '@/lib/db';
 import { enqueueConversation } from '@/lib/roundtable/orchestrator';
 import type { ConversationFormat } from '@/lib/types';
 
@@ -58,8 +58,7 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        const sb = getServiceClient();
-        const sessionId = await enqueueConversation(sb, {
+        const sessionId = await enqueueConversation({
             format,
             topic: body.topic.trim(),
             participants: body.participants,
@@ -97,28 +96,49 @@ export async function GET(req: NextRequest) {
     const withTurns = searchParams.get('with_turns') === 'true';
     const limit = parseInt(searchParams.get('limit') ?? '20', 10);
 
-    const sb = getServiceClient();
+    try {
+        let sessions;
 
-    // Build session query
-    const selectFields =
-        withTurns ?
-            '*, ops_roundtable_turns(turn_number, speaker, dialogue, created_at)'
-        :   '*';
+        if (withTurns) {
+            sessions = await sql`
+                SELECT s.*,
+                    COALESCE(
+                        json_agg(
+                            json_build_object(
+                                'turn_number', t.turn_number,
+                                'speaker', t.speaker,
+                                'dialogue', t.dialogue,
+                                'created_at', t.created_at
+                            )
+                            ORDER BY t.turn_number ASC
+                        ) FILTER (WHERE t.id IS NOT NULL),
+                        '[]'::json
+                    ) AS ops_roundtable_turns
+                FROM ops_roundtable_sessions s
+                LEFT JOIN ops_roundtable_turns t ON t.session_id = s.id
+                WHERE 1=1
+                ${status ? sql`AND s.status = ${status}` : sql``}
+                ${format ? sql`AND s.format = ${format}` : sql``}
+                GROUP BY s.id
+                ORDER BY s.created_at DESC
+                LIMIT ${limit}
+            `;
+        } else {
+            sessions = await sql`
+                SELECT * FROM ops_roundtable_sessions
+                WHERE 1=1
+                ${status ? sql`AND status = ${status}` : sql``}
+                ${format ? sql`AND format = ${format}` : sql``}
+                ORDER BY created_at DESC
+                LIMIT ${limit}
+            `;
+        }
 
-    let query = sb
-        .from('ops_roundtable_sessions')
-        .select(selectFields)
-        .order('created_at', { ascending: false })
-        .limit(limit);
-
-    if (status) query = query.eq('status', status);
-    if (format) query = query.eq('format', format);
-
-    const { data, error } = await query;
-
-    if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ sessions });
+    } catch (err) {
+        return NextResponse.json(
+            { error: (err as Error).message },
+            { status: 500 },
+        );
     }
-
-    return NextResponse.json({ sessions: data });
 }

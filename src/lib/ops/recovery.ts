@@ -1,141 +1,107 @@
-// Stale step recovery — find steps stuck in 'running' for too long and mark failed
-import type { SupabaseClient } from '@supabase/supabase-js';
+// Recovery — reclaim stale steps and finalize missions
+import { sql } from '@/lib/db';
 import { emitEvent } from './events';
-import { writeMemory } from './memory';
 
 const STALE_THRESHOLD_MINUTES = 30;
 
-export async function recoverStaleSteps(
-    sb: SupabaseClient,
-): Promise<{ recovered: number }> {
-    const threshold = new Date(
-        Date.now() - STALE_THRESHOLD_MINUTES * 60 * 1000,
-    ).toISOString();
+export async function recoverStaleSteps(): Promise<{ recovered: number }> {
+    const cutoff = new Date(Date.now() - STALE_THRESHOLD_MINUTES * 60_000);
 
-    // Find steps that have been 'running' for too long
-    const { data: staleSteps, error } = await sb
-        .from('ops_mission_steps')
-        .select('id, mission_id, kind, reserved_by')
-        .eq('status', 'running')
-        .lt('updated_at', threshold)
-        .limit(20);
+    const staleRows = await sql<{ id: string; mission_id: string }[]>`
+        SELECT id, mission_id FROM ops_mission_steps
+        WHERE status = 'running'
+        AND updated_at < ${cutoff.toISOString()}
+    `;
 
-    if (error || !staleSteps?.length) {
-        return { recovered: 0 };
+    if (staleRows.length === 0) return { recovered: 0 };
+
+    const ids = staleRows.map(r => r.id);
+    const reason = `Recovered: step exceeded ${STALE_THRESHOLD_MINUTES} minute timeout`;
+    await sql`
+        UPDATE ops_mission_steps
+        SET status = 'failed',
+            failure_reason = ${reason},
+            completed_at = NOW(),
+            updated_at = NOW()
+        WHERE id = ANY(${ids})
+    `;
+
+    // Finalize affected missions
+    const missionIds = [...new Set(staleRows.map(r => r.mission_id))];
+    for (const missionId of missionIds) {
+        await maybeFinalializeMission(missionId);
     }
 
-    let recovered = 0;
-
-    for (const step of staleSteps) {
-        const { error: updateError } = await sb
-            .from('ops_mission_steps')
-            .update({
-                status: 'failed',
-                failure_reason: `Stale: running for >${STALE_THRESHOLD_MINUTES}m with no progress`,
-                completed_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-            })
-            .eq('id', step.id)
-            .eq('status', 'running'); // Atomic: only if still running
-
-        if (!updateError) {
-            recovered++;
-
-            await emitEvent(sb, {
-                agent_id: 'system',
-                kind: 'step_recovered',
-                title: `Recovered stale step: ${step.kind}`,
-                summary: `Step ${step.id} was running for >${STALE_THRESHOLD_MINUTES}m. Marked as failed.`,
-                tags: ['system', 'recovery', 'stale'],
-                metadata: { stepId: step.id, missionId: step.mission_id },
-            });
-
-            // Check if all steps in the mission are now done → finalize mission
-            await maybeFinalializeMission(sb, step.mission_id);
-        }
-    }
-
-    return { recovered };
-}
-
-/**
- * If all steps in a mission are terminal (succeeded/failed/skipped),
- * finalize the mission status.
- */
-export async function maybeFinalializeMission(
-    sb: SupabaseClient,
-    missionId: string,
-): Promise<void> {
-    const { data: steps } = await sb
-        .from('ops_mission_steps')
-        .select('status')
-        .eq('mission_id', missionId);
-
-    if (!steps?.length) return;
-
-    const allDone = steps.every(s =>
-        ['succeeded', 'failed', 'skipped'].includes(s.status),
-    );
-
-    if (!allDone) return;
-
-    const anyFailed = steps.some(s => s.status === 'failed');
-    const newStatus = anyFailed ? 'failed' : 'succeeded';
-
-    // Fetch the mission title + agent for memory writing
-    const { data: mission } = await sb
-        .from('ops_missions')
-        .select('title, agent_id, failure_reason')
-        .eq('id', missionId)
-        .single();
-
-    await sb
-        .from('ops_missions')
-        .update({
-            status: newStatus,
-            completed_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            ...(anyFailed ?
-                { failure_reason: 'One or more steps failed' }
-            :   {}),
-        })
-        .eq('id', missionId)
-        .in('status', ['approved', 'running']); // Don't overwrite already-finalized
-
-    await emitEvent(sb, {
-        agent_id: 'system',
-        kind: `mission_${newStatus}`,
-        title: `Mission ${newStatus}`,
-        tags: ['mission', newStatus],
-        metadata: { missionId },
+    await emitEvent({
+        agent_id: 'mux',
+        kind: 'stale_steps_recovered',
+        title: `Recovered ${staleRows.length} stale step(s)`,
+        summary: `Steps exceeded ${STALE_THRESHOLD_MINUTES}min timeout`,
+        tags: ['recovery', 'stale'],
+        metadata: { stepIds: ids, missionIds },
     });
 
-    // Write memory from mission outcome
-    if (mission) {
-        const agentId = (mission.agent_id as string) ?? 'chora';
-        const title = (mission.title as string) ?? 'Unknown mission';
+    return { recovered: staleRows.length };
+}
 
-        if (newStatus === 'succeeded') {
-            await writeMemory(sb, {
-                agent_id: agentId,
-                type: 'strategy',
-                content: `Strategy succeeded: "${title}". This approach works.`,
-                confidence: 0.65,
-                tags: ['mission', 'succeeded'],
-                source_trace_id: `mission-outcome:${missionId}`,
-            });
-        } else {
-            const reason =
-                (mission.failure_reason as string) ??
-                'One or more steps failed';
-            await writeMemory(sb, {
-                agent_id: agentId,
-                type: 'lesson',
-                content: `Mission failed: "${title}". Reason: ${reason}`,
-                confidence: 0.7,
-                tags: ['mission', 'failed'],
-                source_trace_id: `mission-outcome:${missionId}`,
-            });
-        }
+export async function maybeFinalializeMission(
+    missionId: string,
+): Promise<void> {
+    // Count pending steps (queued or running)
+    const [{ count: pendingCount }] = await sql<[{ count: number }]>`
+        SELECT COUNT(*)::int as count FROM ops_mission_steps
+        WHERE mission_id = ${missionId}
+        AND status IN ('queued', 'running')
+    `;
+
+    if (pendingCount > 0) return; // Still has work to do
+
+    // All steps done — determine outcome
+    const [{ count: failedCount }] = await sql<[{ count: number }]>`
+        SELECT COUNT(*)::int as count FROM ops_mission_steps
+        WHERE mission_id = ${missionId}
+        AND status = 'failed'
+    `;
+
+    const [mission] = await sql<[{ created_by: string; title: string }]>`
+        SELECT created_by, title FROM ops_missions WHERE id = ${missionId}
+    `;
+
+    if (!mission) return;
+
+    if (failedCount > 0) {
+        const failReason = `${failedCount} step(s) failed`;
+        await sql`
+            UPDATE ops_missions
+            SET status = 'failed',
+                failure_reason = ${failReason},
+                completed_at = NOW(),
+                updated_at = NOW()
+            WHERE id = ${missionId}
+        `;
+
+        await emitEvent({
+            agent_id: mission.created_by,
+            kind: 'mission_failed',
+            title: `Mission failed: ${mission.title}`,
+            tags: ['mission', 'failed'],
+            metadata: { missionId, failedSteps: failedCount },
+        });
+    } else {
+        await sql`
+            UPDATE ops_missions
+            SET status = 'succeeded',
+                completed_at = NOW(),
+                updated_at = NOW()
+            WHERE id = ${missionId}
+        `;
+
+        await emitEvent({
+            agent_id: mission.created_by,
+            kind: 'mission_succeeded',
+            title: `Mission completed: ${mission.title}`,
+            tags: ['mission', 'succeeded'],
+            metadata: { missionId },
+        });
     }
 }

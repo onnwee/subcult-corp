@@ -4,94 +4,119 @@
 // Run: node scripts/initiative-worker/worker.mjs
 //
 // Environment variables required:
-//   NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SECRET_KEY
-//   LLM_API_KEY, LLM_BASE_URL (optional), LLM_MODEL (optional)
+//   DATABASE_URL
+//   OPENROUTER_API_KEY, LLM_MODEL (optional)
 //   CRON_SECRET (optional, for authenticated API calls)
 
-import { createClient } from '@supabase/supabase-js';
+import postgres from 'postgres';
+import { OpenRouter } from '@openrouter/sdk';
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 
 // ─── Config ───
 
 const POLL_INTERVAL_MS = 60_000; // 60 seconds
-const sb = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SECRET_KEY,
-);
 
-const LLM_BASE_URL = process.env.LLM_BASE_URL ?? 'https://api.openai.com/v1';
-const LLM_API_KEY = process.env.LLM_API_KEY ?? '';
-const LLM_MODEL = process.env.LLM_MODEL ?? 'gpt-4o-mini';
+if (!process.env.DATABASE_URL) {
+    console.error('Missing DATABASE_URL environment variable');
+    process.exit(1);
+}
+
+const sql = postgres(process.env.DATABASE_URL, {
+    max: 3,
+    idle_timeout: 20,
+    connect_timeout: 10,
+});
+
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? '';
+const LLM_MODEL = process.env.LLM_MODEL ?? 'openrouter/auto';
 const CRON_SECRET = process.env.CRON_SECRET ?? '';
+
+if (!OPENROUTER_API_KEY) {
+    console.error('Missing OPENROUTER_API_KEY environment variable');
+    process.exit(1);
+}
+
+const openrouter = new OpenRouter({ apiKey: OPENROUTER_API_KEY });
 
 // ─── Agent Config (must match src/lib/agents.ts) ───
 
 const AGENTS = {
-    opus: {
-        id: 'opus',
-        displayName: 'Opus',
-        role: 'Coordinator',
+    chora: {
+        id: 'chora',
+        displayName: 'Chora',
+        role: 'Analyst',
         description:
-            'Project coordinator. Prioritizes work, approves proposals, and keeps the team aligned.',
+            'Makes systems legible. Diagnoses structure, exposes assumptions, traces causality.',
     },
-    brain: {
-        id: 'brain',
-        displayName: 'Brain',
+    subrosa: {
+        id: 'subrosa',
+        displayName: 'Subrosa',
+        role: 'Protector',
+        description:
+            'Preserves agency under asymmetry. Evaluates risk, protects optionality.',
+    },
+    thaum: {
+        id: 'thaum',
+        displayName: 'Thaum',
+        role: 'Innovator',
+        description:
+            'Restores motion when thought stalls. Disrupts self-sealing explanations, reframes problems.',
+    },
+    praxis: {
+        id: 'praxis',
+        displayName: 'Praxis',
         role: 'Executor',
         description:
-            'Analytical executor. Researches topics, drafts content, runs analyses.',
+            'Ends deliberation responsibly. Chooses among viable paths, translates intent to action.',
     },
-    observer: {
-        id: 'observer',
-        displayName: 'Observer',
-        role: 'Observer',
+    mux: {
+        id: 'mux',
+        displayName: 'Mux',
+        role: 'Dispatcher',
         description:
-            'System observer. Monitors performance, reviews outcomes, spots patterns.',
+            'Pure dispatcher with no personality. Classifies tasks and routes to appropriate agent.',
     },
 };
 
 const VALID_STEP_KINDS = [
+    'analyze_discourse',
     'scan_signals',
-    'draft_tweet',
-    'post_tweet',
-    'analyze',
-    'review',
-    'research',
+    'research_topic',
+    'distill_insight',
+    'classify_pattern',
+    'draft_thread',
+    'draft_essay',
+    'critique_content',
+    'review_policy',
+    'document_lesson',
+    'log_event',
+    'tag_memory',
 ];
 
 // ─── LLM Client ───
 
 async function llmGenerate(messages, temperature = 0.7) {
-    const res = await fetch(`${LLM_BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${LLM_API_KEY}`,
-        },
-        body: JSON.stringify({
-            model: LLM_MODEL,
-            messages,
-            temperature,
-            max_tokens: 600,
-        }),
+    const systemMessage = messages.find(m => m.role === 'system');
+    const conversationMessages = messages.filter(m => m.role !== 'system');
+
+    const result = openrouter.callModel({
+        model: LLM_MODEL,
+        ...(systemMessage ? { instructions: systemMessage.content } : {}),
+        input: conversationMessages.map(m => ({
+            role: m.role,
+            content: m.content,
+        })),
+        temperature,
+        maxOutputTokens: 600,
     });
 
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`LLM API error ${res.status}: ${text}`);
-    }
-
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content?.trim() ?? '';
+    const text = await result.getText();
+    return text?.trim() ?? '';
 }
 
 // ─── Initiative Processing ───
 
-/**
- * Build the prompt that asks the LLM to generate a proposal
- * based on an agent's accumulated memories.
- */
 function buildInitiativePrompt(agentId, agent, memories) {
     const memorySummary = memories
         .map(m => `- [${m.type}] (${m.confidence}) ${m.content}`)
@@ -121,20 +146,13 @@ Respond with a JSON object (no markdown, no explanation):
   "description": "Why this initiative matters, referencing your observations",
   "steps": [
     {
-      "kind": "research",
+      "kind": "research_topic",
       "payload": { "description": "What to research and why" }
     }
   ]
 }`;
 }
 
-/**
- * Process a single initiative queue entry:
- * 1. Load agent's memories from context
- * 2. Generate a proposal via LLM
- * 3. Submit the proposal through the API
- * 4. Update queue entry with result
- */
 async function processInitiative(entry) {
     const agentId = entry.agent_id;
     const agent = AGENTS[agentId];
@@ -149,7 +167,6 @@ async function processInitiative(entry) {
         `  [initiative] Processing initiative for ${agent.displayName} (${entry.id})`,
     );
 
-    // Extract memories from the queued context
     const memories = entry.context?.memories ?? [];
     if (memories.length === 0) {
         console.error('  [initiative] No memories in context');
@@ -157,7 +174,6 @@ async function processInitiative(entry) {
         return;
     }
 
-    // Generate proposal via LLM
     const prompt = buildInitiativePrompt(agentId, agent, memories);
     let rawResponse;
     try {
@@ -178,7 +194,6 @@ async function processInitiative(entry) {
         return;
     }
 
-    // Parse LLM response
     let proposal;
     try {
         let jsonStr = rawResponse.trim();
@@ -194,7 +209,6 @@ async function processInitiative(entry) {
         return;
     }
 
-    // Validate proposal structure
     if (
         !proposal.title ||
         !proposal.steps ||
@@ -206,7 +220,6 @@ async function processInitiative(entry) {
         return;
     }
 
-    // Validate and normalize steps
     const proposedSteps = proposal.steps
         .filter(s => s && VALID_STEP_KINDS.includes(s.kind))
         .slice(0, 3)
@@ -221,7 +234,6 @@ async function processInitiative(entry) {
         return;
     }
 
-    // Submit the proposal via the proposals API
     const proposalPayload = {
         agent_id: agentId,
         title: proposal.title.substring(0, 100),
@@ -233,9 +245,6 @@ async function processInitiative(entry) {
 
     let result;
     try {
-        // Use direct Supabase approach — call createProposalAndMaybeAutoApprove logic
-        // by POSTing to our own API endpoint
-        // Try the API route if we have a base URL
         const baseUrl =
             process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
         const res = await fetch(`${baseUrl}/api/ops/proposals`, {
@@ -253,28 +262,25 @@ async function processInitiative(entry) {
             throw new Error(result.error ?? `API returned ${res.status}`);
         }
     } catch (err) {
-        // Fallback: insert proposal directly via Supabase
         console.warn(
             '  [initiative] API call failed, inserting directly:',
             err.message,
         );
         try {
-            const { data, error } = await sb
-                .from('ops_mission_proposals')
-                .insert({
-                    agent_id: agentId,
-                    title: proposalPayload.title,
-                    description: proposalPayload.description,
-                    proposed_steps: proposalPayload.proposed_steps,
-                    source: 'initiative',
-                    source_trace_id: `initiative:${entry.id}`,
-                    status: 'pending',
-                })
-                .select('id')
-                .single();
-
-            if (error) throw error;
-            result = { success: true, proposalId: data.id };
+            const [row] = await sql`
+                INSERT INTO ops_mission_proposals (agent_id, title, description, proposed_steps, source, source_trace_id, status)
+                VALUES (
+                    ${agentId},
+                    ${proposalPayload.title},
+                    ${proposalPayload.description},
+                    ${JSON.stringify(proposalPayload.proposed_steps)}::jsonb,
+                    'initiative',
+                    ${proposalPayload.source_trace_id},
+                    'pending'
+                )
+                RETURNING id
+            `;
+            result = { success: true, proposalId: row.id };
         } catch (directErr) {
             console.error(
                 '  [initiative] Direct insert also failed:',
@@ -288,76 +294,56 @@ async function processInitiative(entry) {
         }
     }
 
-    // Mark initiative as completed
-    await sb
-        .from('ops_initiative_queue')
-        .update({
-            status: 'completed',
-            processed_at: new Date().toISOString(),
-            result: {
-                proposal_title: proposalPayload.title,
-                proposal_id: result.proposalId ?? null,
-                mission_id: result.missionId ?? null,
-                success: result.success ?? true,
-            },
-        })
-        .eq('id', entry.id);
+    const completionResult = {
+        proposal_title: proposalPayload.title,
+        proposal_id: result.proposalId ?? null,
+        mission_id: result.missionId ?? null,
+        success: result.success ?? true,
+    };
+
+    await sql`
+        UPDATE ops_initiative_queue
+        SET status = 'completed',
+            processed_at = NOW(),
+            result = ${JSON.stringify(completionResult)}::jsonb
+        WHERE id = ${entry.id}
+    `;
 
     console.log(
         `  [initiative] ✓ ${agent.displayName} proposed: "${proposalPayload.title}" (proposal: ${result.proposalId ?? 'direct'})`,
     );
 }
 
-/**
- * Mark a queue entry as failed.
- */
 async function failEntry(entryId, error) {
-    await sb
-        .from('ops_initiative_queue')
-        .update({
-            status: 'failed',
-            processed_at: new Date().toISOString(),
-            result: { error },
-        })
-        .eq('id', entryId);
+    await sql`
+        UPDATE ops_initiative_queue
+        SET status = 'failed',
+            processed_at = NOW(),
+            result = ${JSON.stringify({ error })}::jsonb
+        WHERE id = ${entryId}
+    `;
 }
 
 // ─── Poll Loop ───
 
 async function pollAndProcess() {
-    // Find the oldest pending initiative
-    const { data: pending, error } = await sb
-        .from('ops_initiative_queue')
-        .select('*')
-        .eq('status', 'pending')
-        .order('created_at', { ascending: true })
-        .limit(1);
+    const [entry] = await sql`
+        UPDATE ops_initiative_queue
+        SET status = 'processing'
+        WHERE id = (
+            SELECT id FROM ops_initiative_queue
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *
+    `;
 
-    if (error) {
-        console.error('[initiative-worker] Poll error:', error.message);
-        return;
-    }
-
-    if (!pending?.length) return;
-
-    const entry = pending[0];
-
-    // Atomic claim: only update if still pending
-    const { data: claimed, error: claimError } = await sb
-        .from('ops_initiative_queue')
-        .update({ status: 'processing' })
-        .eq('id', entry.id)
-        .eq('status', 'pending')
-        .select('*')
-        .single();
-
-    if (claimError || !claimed) {
-        // Another worker got it first
-        return;
-    }
+    if (!entry) return;
 
     try {
-        await processInitiative(claimed);
+        await processInitiative(entry);
     } catch (err) {
         console.error('[initiative-worker] Processing failed:', err.message);
         await failEntry(entry.id, `Unexpected error: ${err.message}`);
@@ -370,28 +356,10 @@ async function main() {
     console.log('💡 Initiative Worker started');
     console.log(`   Poll interval: ${POLL_INTERVAL_MS / 1000}s`);
     console.log(`   LLM model: ${LLM_MODEL}`);
-    console.log(
-        `   Supabase: ${process.env.NEXT_PUBLIC_SUPABASE_URL ? '✓' : '✗'}`,
-    );
-    console.log(`   LLM API key: ${LLM_API_KEY ? '✓' : '✗'}`);
+    console.log(`   Database: ${process.env.DATABASE_URL ? '✓' : '✗'}`);
+    console.log(`   OpenRouter API key: ${OPENROUTER_API_KEY ? '✓' : '✗'}`);
     console.log('');
 
-    if (
-        !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-        !process.env.SUPABASE_SECRET_KEY
-    ) {
-        console.error(
-            'Missing Supabase credentials. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY in .env.local',
-        );
-        process.exit(1);
-    }
-
-    if (!LLM_API_KEY) {
-        console.error('Missing LLM_API_KEY. Set it in .env.local');
-        process.exit(1);
-    }
-
-    // Run immediately, then on interval
     await pollAndProcess();
 
     setInterval(async () => {

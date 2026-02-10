@@ -1,14 +1,15 @@
 // Seed trigger rules into ops_trigger_rules
 // Run: node scripts/go-live/seed-trigger-rules.mjs
 
-import { createClient } from '@supabase/supabase-js';
+import postgres from 'postgres';
 import dotenv from 'dotenv';
 dotenv.config({ path: ['.env.local', '.env'] });
 
-const sb = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SECRET_KEY,
-);
+if (!process.env.DATABASE_URL) {
+    console.error('Missing DATABASE_URL');
+    process.exit(1);
+}
+const sql = postgres(process.env.DATABASE_URL);
 
 const triggers = [
     // ─── Reactive Triggers (Chora: Analysis) ───
@@ -119,29 +120,33 @@ async function seed() {
     console.log('Seeding ops_trigger_rules...');
 
     // Clear existing rules
-    const { error: deleteError } = await sb
-        .from('ops_trigger_rules')
-        .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000'); // delete all
-
-    if (deleteError) {
-        console.error(
-            '  ✗ Failed to clear existing rules:',
-            deleteError.message,
-        );
+    try {
+        await sql`DELETE FROM ops_trigger_rules WHERE TRUE`;
+    } catch (err) {
+        console.error('  ✗ Failed to clear existing rules:', err.message);
     }
 
     for (const trigger of triggers) {
-        const { error } = await sb.from('ops_trigger_rules').insert(trigger);
-
-        if (error) {
-            console.error(`  ✗ ${trigger.name}: ${error.message}`);
-        } else {
+        try {
+            await sql`
+                INSERT INTO ops_trigger_rules (name, trigger_event, conditions, action_config, cooldown_minutes, enabled)
+                VALUES (
+                    ${trigger.name},
+                    ${trigger.trigger_event},
+                    ${JSON.stringify(trigger.conditions)}::jsonb,
+                    ${JSON.stringify(trigger.action_config)}::jsonb,
+                    ${trigger.cooldown_minutes},
+                    ${trigger.enabled}
+                )
+            `;
             console.log(`  ✓ ${trigger.name}`);
+        } catch (err) {
+            console.error(`  ✗ ${trigger.name}: ${err.message}`);
         }
     }
 
     console.log(`Done. Seeded ${triggers.length} trigger rules.`);
+    await sql.end();
 }
 
 seed().catch(console.error);

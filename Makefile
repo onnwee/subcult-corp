@@ -28,6 +28,18 @@ clean: ## Remove .next build cache
 	rm -rf .next
 
 # ──────────────────────────────────────────
+# Database
+# ──────────────────────────────────────────
+
+db-migrate: ## Run all SQL migrations against DATABASE_URL
+	@source .env.local 2>/dev/null; \
+	for f in supabase/migrations/*.sql; do \
+		echo "Running $$f..."; \
+		psql "$$DATABASE_URL" -f "$$f" 2>&1 | tail -1; \
+	done
+	@echo "Migrations complete."
+
+# ──────────────────────────────────────────
 # Database Seeding
 # ──────────────────────────────────────────
 
@@ -46,7 +58,7 @@ seed-proactive: ## Seed proactive triggers (disabled by default)
 seed-roundtable: ## Seed roundtable policies
 	node scripts/go-live/seed-roundtable-policy.mjs
 
-seed-relationships: ## Seed agent relationships (3 pairs)
+seed-relationships: ## Seed agent relationships (10 pairs)
 	node scripts/go-live/seed-relationships.mjs
 
 # ──────────────────────────────────────────
@@ -59,14 +71,11 @@ verify: ## Run launch verification checks
 heartbeat: ## Trigger heartbeat manually (requires CRON_SECRET in .env.local)
 	@source .env.local 2>/dev/null; \
 	curl -s -H "Authorization: Bearer $$CRON_SECRET" \
-		"$${NEXT_PUBLIC_SUPABASE_URL:+http://localhost:3000}/api/ops/heartbeat" | \
-		node -e "process.stdin.on('data',d=>console.log(JSON.stringify(JSON.parse(d),null,2)))"
-
-heartbeat-local: ## Trigger heartbeat on localhost:3000
-	@source .env.local 2>/dev/null; \
-	curl -s -H "Authorization: Bearer $$CRON_SECRET" \
 		http://localhost:3000/api/ops/heartbeat | \
 		node -e "process.stdin.on('data',d=>console.log(JSON.stringify(JSON.parse(d),null,2)))"
+
+heartbeat-local: ## Alias for heartbeat (same target on VPS)
+	@$(MAKE) heartbeat
 
 # ──────────────────────────────────────────
 # VPS Workers (systemd)

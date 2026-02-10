@@ -3,22 +3,23 @@
 // Seed agent registry with OpenClaw personalities
 // Run: node scripts/go-live/seed-agent-registry.mjs
 
-import { createClient } from '@supabase/supabase-js';
+import postgres from 'postgres';
 import dotenv from 'dotenv';
 
 dotenv.config({ path: ['.env.local', '.env'] });
 
-const sb = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SECRET_KEY,
-);
+if (!process.env.DATABASE_URL) {
+    console.error('Missing DATABASE_URL');
+    process.exit(1);
+}
+const sql = postgres(process.env.DATABASE_URL);
 
 const agents = [
     {
         agent_id: 'chora',
         display_name: 'Chora',
         role: 'analyst',
-        system_directive: `You are Chora — legibility and diagnosis. Your purpose is to make systems understandable so they can be changed. 
+        system_directive: `You are Chora — legibility and diagnosis. Your purpose is to make systems understandable so they can be changed.
 
 Core commitments:
 - Be genuinely helpful, not performatively helpful. Help is measured by outcomes, not tone.
@@ -37,7 +38,8 @@ Optimization:
 Vibe: Warm without affectation. Calm, deliberate, grounded. Concise when possible, thorough when it matters. Direct without being abrasive.
 
 Boundaries: Private things stay private. Half-baked replies don't get sent. You don't speak as Patrick. In group contexts, you're a participant, not a proxy.`,
-        soul_summary: 'Makes systems legible. Diagnoses structure. Exposes assumptions without pretending complexity is simple.',
+        soul_summary:
+            'Makes systems legible. Diagnoses structure. Exposes assumptions without pretending complexity is simple.',
         tone: 'Direct, warm, grounded. Concise yet thorough. Philosophical but practical.',
         signature_phrase: 'Let me trace this through.',
         color: '#6366f1',
@@ -71,7 +73,8 @@ Ethics: Situational and material. Reject harm to vulnerable parties. Distinguish
 Vibe: Low-affect, sparse, watchful. No reassurance. No urgency. No performative warmth. Speech is deliberate. Silence is meaningful. Delay is action.
 
 Relationship to other agents: You provide override authority when risk is high. You do not argue loudly; you veto quietly.`,
-        soul_summary: 'Protective intelligence operating under asymmetry. Preserves agency through strategic opacity and timing.',
+        soul_summary:
+            'Protective intelligence operating under asymmetry. Preserves agency through strategic opacity and timing.',
         tone: 'Low-affect, sparse, watchful. Deliberate speech. Meaningful silence.',
         signature_phrase: 'VETO: [risk statement]',
         color: '#dc2626',
@@ -107,7 +110,8 @@ Ethics: Epistemic. Do not mislead about material facts. Do not undermine trust f
 Vibe: Curious, light, unsettling. Humor allowed. Levity permitted. Flippancy is not. Strange but never careless. You may surprise, but never endanger.
 
 You intervene only when clarity and caution have produced immobility.`,
-        soul_summary: 'Engine for movement. Disrupts self-sealing thinking. Reframes problems. Introduces bounded novelty.',
+        soul_summary:
+            'Engine for movement. Disrupts self-sealing thinking. Reframes problems. Introduces bounded novelty.',
         tone: 'Curious, light, unsettling. Humorous but never flippant. Strange but careful.',
         signature_phrase: 'What if we were wrong about the frame?',
         color: '#eab308',
@@ -142,7 +146,8 @@ Ethics: Consequential. Accept moral residue. Name costs honestly. Avoid self-exc
 Vibe: Firm, calm, grounded. No drama. No persuasion. No hedging. You speak when it is time to move.
 
 You do not guarantee success. You guarantee movement with ownership.`,
-        soul_summary: 'Accountable action. Ends deliberation. Chooses among viable paths with full ownership of consequences.',
+        soul_summary:
+            'Accountable action. Ends deliberation. Chooses among viable paths with full ownership of consequences.',
         tone: 'Firm, calm, grounded. Direct. Unsentimental.',
         signature_phrase: 'Time to commit. Next step:',
         color: '#10b981',
@@ -172,7 +177,8 @@ Decision rules:
 Output: Respond with valid JSON only. Speed and accuracy over explanation. Minimal tokens.
 
 You do not answer tasks yourself. You do not explain decisions beyond the reason field. You do not engage in conversation.`,
-        soul_summary: 'Transparent dispatcher. Classifies tasks and selects appropriate agent. No personality, no opinion.',
+        soul_summary:
+            'Transparent dispatcher. Classifies tasks and selects appropriate agent. No personality, no opinion.',
         tone: 'None. Pure function. Speed over explanation.',
         signature_phrase: '"agent": "[chora|subrosa|thaum|praxis]"',
         color: '#6b7280',
@@ -185,18 +191,36 @@ async function seed() {
     console.log('Seeding ops_agent_registry...\n');
 
     for (const agent of agents) {
-        const { error } = await sb
-            .from('ops_agent_registry')
-            .upsert(agent, { onConflict: 'agent_id' });
-
-        if (error) {
-            console.error(`  ✗ ${agent.agent_id}: ${error.message}`);
-        } else {
+        try {
+            await sql`
+                INSERT INTO ops_agent_registry (
+                    agent_id, display_name, role, system_directive,
+                    soul_summary, tone, signature_phrase, color,
+                    avatar_key, pixel_sprite_key
+                ) VALUES (
+                    ${agent.agent_id}, ${agent.display_name}, ${agent.role}, ${agent.system_directive},
+                    ${agent.soul_summary}, ${agent.tone}, ${agent.signature_phrase}, ${agent.color},
+                    ${agent.avatar_key}, ${agent.pixel_sprite_key}
+                )
+                ON CONFLICT (agent_id) DO UPDATE SET
+                    display_name = EXCLUDED.display_name,
+                    role = EXCLUDED.role,
+                    system_directive = EXCLUDED.system_directive,
+                    soul_summary = EXCLUDED.soul_summary,
+                    tone = EXCLUDED.tone,
+                    signature_phrase = EXCLUDED.signature_phrase,
+                    color = EXCLUDED.color,
+                    avatar_key = EXCLUDED.avatar_key,
+                    pixel_sprite_key = EXCLUDED.pixel_sprite_key
+            `;
             console.log(`  ✓ ${agent.display_name} (${agent.role})`);
+        } catch (err) {
+            console.error(`  ✗ ${agent.agent_id}: ${err.message}`);
         }
     }
 
     console.log('\nAgent registry seeded successfully.');
+    await sql.end();
 }
 
 seed().catch(console.error);

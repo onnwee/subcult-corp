@@ -1,2 +1,2 @@
 // Barrel export for LLM module
-export { llmGenerate, sanitizeDialogue } from './client';
+export { llmGenerate, sanitizeDialogue, getOpenRouterClient } from './client';

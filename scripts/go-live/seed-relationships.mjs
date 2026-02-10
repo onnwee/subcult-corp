@@ -4,14 +4,15 @@
 // 5 OpenClaw agents = 10 pairwise relationships (Chora, Subrosa, Thaum, Praxis, Mux)
 // agent_a < agent_b (alphabetical) — enforced by CHECK constraint
 
-import { createClient } from '@supabase/supabase-js';
+import postgres from 'postgres';
 import dotenv from 'dotenv';
 dotenv.config({ path: ['.env.local', '.env'] });
 
-const sb = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SECRET_KEY,
-);
+if (!process.env.DATABASE_URL) {
+    console.error('Missing DATABASE_URL');
+    process.exit(1);
+}
+const sql = postgres(process.env.DATABASE_URL);
 
 const relationships = [
     // ─── Chora (analyst) relationships ───
@@ -126,24 +127,37 @@ async function seed() {
     console.log('Seeding agent relationships...\n');
 
     for (const rel of relationships) {
-        const { data, error } = await sb
-            .from('ops_agent_relationships')
-            .upsert(rel, { onConflict: 'agent_a,agent_b' })
-            .select('id')
-            .single();
-
-        if (error) {
-            console.error(
-                `  ✗ ${rel.agent_a} ↔ ${rel.agent_b}: ${error.message}`,
-            );
-        } else {
+        try {
+            const [row] = await sql`
+                INSERT INTO ops_agent_relationships (
+                    agent_a, agent_b, affinity,
+                    total_interactions, positive_interactions, negative_interactions,
+                    drift_log
+                ) VALUES (
+                    ${rel.agent_a}, ${rel.agent_b}, ${rel.affinity},
+                    ${rel.total_interactions}, ${rel.positive_interactions}, ${rel.negative_interactions},
+                    ${JSON.stringify(rel.drift_log)}::jsonb
+                )
+                ON CONFLICT (agent_a, agent_b) DO UPDATE SET
+                    affinity = EXCLUDED.affinity,
+                    total_interactions = EXCLUDED.total_interactions,
+                    positive_interactions = EXCLUDED.positive_interactions,
+                    negative_interactions = EXCLUDED.negative_interactions,
+                    drift_log = EXCLUDED.drift_log
+                RETURNING id
+            `;
             console.log(
-                `  ✓ ${rel.agent_a} ↔ ${rel.agent_b}: affinity ${rel.affinity} (${data.id})`,
+                `  ✓ ${rel.agent_a} ↔ ${rel.agent_b}: affinity ${rel.affinity} (${row.id})`,
+            );
+        } catch (err) {
+            console.error(
+                `  ✗ ${rel.agent_a} ↔ ${rel.agent_b}: ${err.message}`,
             );
         }
     }
 
     console.log('\nDone! Seeded', relationships.length, 'relationships.');
+    await sql.end();
 }
 
 seed().catch(err => {

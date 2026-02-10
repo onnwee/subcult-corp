@@ -295,6 +295,7 @@ export interface LLMGenerateOptions {
     messages: LLMMessage[];
     temperature?: number;
     maxTokens?: number;
+    model?: string; // Override default model for this request
 }
 
 // ─── Memory Types ───

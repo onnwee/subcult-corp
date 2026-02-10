@@ -3,7 +3,7 @@
 // recovers stale steps. Each phase is try-catch'd so one failure won't crash the rest.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServiceClient } from '@/lib/supabase';
+import { sql } from '@/lib/db';
 import { evaluateTriggers } from '@/lib/ops/triggers';
 import { processReactionQueue } from '@/lib/ops/reaction-matrix';
 import { recoverStaleSteps } from '@/lib/ops/recovery';
@@ -13,7 +13,6 @@ import { learnFromOutcomes } from '@/lib/ops/outcome-learner';
 import { checkAndQueueInitiatives } from '@/lib/ops/initiative';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 25; // seconds (Vercel limit)
 
 export async function GET(req: NextRequest) {
     const startTime = Date.now();
@@ -26,10 +25,8 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const sb = getServiceClient();
-
     // ── Kill switch check ──
-    const systemPolicy = await getPolicy(sb, 'system_enabled');
+    const systemPolicy = await getPolicy('system_enabled');
     if (!(systemPolicy.enabled as boolean)) {
         return NextResponse.json({
             status: 'disabled',
@@ -41,7 +38,7 @@ export async function GET(req: NextRequest) {
 
     // ── Phase 1: Evaluate triggers ──
     try {
-        results.triggers = await evaluateTriggers(sb, 4000);
+        results.triggers = await evaluateTriggers(4000);
     } catch (err) {
         results.triggers = { error: (err as Error).message };
         console.error('[heartbeat] Trigger evaluation failed:', err);
@@ -49,7 +46,7 @@ export async function GET(req: NextRequest) {
 
     // ── Phase 2: Process reaction queue ──
     try {
-        results.reactions = await processReactionQueue(sb, 3000);
+        results.reactions = await processReactionQueue(3000);
     } catch (err) {
         results.reactions = { error: (err as Error).message };
         console.error('[heartbeat] Reaction processing failed:', err);
@@ -57,7 +54,7 @@ export async function GET(req: NextRequest) {
 
     // ── Phase 3: Recover stale steps ──
     try {
-        results.stale = await recoverStaleSteps(sb);
+        results.stale = await recoverStaleSteps();
     } catch (err) {
         results.stale = { error: (err as Error).message };
         console.error('[heartbeat] Stale recovery failed:', err);
@@ -65,7 +62,7 @@ export async function GET(req: NextRequest) {
 
     // ── Phase 4: Check roundtable schedule ──
     try {
-        results.roundtable = await checkScheduleAndEnqueue(sb);
+        results.roundtable = await checkScheduleAndEnqueue();
     } catch (err) {
         results.roundtable = { error: (err as Error).message };
         console.error('[heartbeat] Roundtable schedule check failed:', err);
@@ -73,7 +70,7 @@ export async function GET(req: NextRequest) {
 
     // ── Phase 5: Learn from outcomes ──
     try {
-        results.learning = await learnFromOutcomes(sb);
+        results.learning = await learnFromOutcomes();
     } catch (err) {
         results.learning = { error: (err as Error).message };
         console.error('[heartbeat] Outcome learning failed:', err);
@@ -81,7 +78,7 @@ export async function GET(req: NextRequest) {
 
     // ── Phase 6: Queue agent initiatives ──
     try {
-        results.initiatives = await checkAndQueueInitiatives(sb);
+        results.initiatives = await checkAndQueueInitiatives();
     } catch (err) {
         results.initiatives = { error: (err as Error).message };
         console.error('[heartbeat] Initiative queueing failed:', err);
@@ -91,12 +88,10 @@ export async function GET(req: NextRequest) {
 
     // ── Write audit log ──
     try {
-        await sb.from('ops_action_runs').insert({
-            action: 'heartbeat',
-            status: 'succeeded',
-            result: results,
-            duration_ms: durationMs,
-        });
+        await sql`
+            INSERT INTO ops_action_runs (action, status, result, duration_ms)
+            VALUES ('heartbeat', 'succeeded', ${JSON.stringify(results)}::jsonb, ${durationMs})
+        `;
     } catch (err) {
         console.error('[heartbeat] Failed to write audit log:', err);
     }

@@ -38,6 +38,7 @@ const SKIN_TONES: Record<string, string> = {
     subrosa: '#e8c8a0',
     thaum: '#d4a880',
     praxis: '#e8d0a0',
+    mux: '#d8c0a8',
 };
 
 const AGENT_CONFIGS = [
@@ -61,6 +62,13 @@ const AGENT_CONFIGS = [
         color: AGENTS.thaum.color,
         skinColor: SKIN_TONES.thaum,
         startX: 540,
+    },
+    {
+        id: 'mux',
+        name: AGENTS.mux.displayName,
+        color: AGENTS.mux.color,
+        skinColor: SKIN_TONES.mux,
+        startX: 660,
     },
     {
         id: 'praxis',
@@ -312,7 +320,7 @@ function OfficeFurniture({ period }: { period: 'day' | 'dusk' | 'night' }) {
             />
 
             {/* Desks */}
-            {[90, 330, 510, 750].map((dx, i) => (
+            {[90, 330, 510, 630, 750].map((dx, i) => (
                 <g key={i}>
                     <rect
                         x={dx - 25}

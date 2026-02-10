@@ -2,7 +2,6 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { supabaseBrowser } from '@/lib/supabase-browser';
 import type {
     AgentEvent,
     Mission,
@@ -11,7 +10,15 @@ import type {
     RoundtableTurn,
 } from '@/lib/types';
 
-// ─── useEvents — fetch + realtime signal feed ───
+// ─── Helper: fetch JSON from internal API ───
+
+async function fetchJson<T>(url: string): Promise<T> {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+    return res.json() as Promise<T>;
+}
+
+// ─── useEvents — fetch + polling signal feed ───
 
 export function useEvents(filters?: {
     agentId?: string;
@@ -26,60 +33,33 @@ export function useEvents(filters?: {
     const kind = filters?.kind;
     const [refreshKey, setRefreshKey] = useState(0);
 
-    useEffect(() => {
-        let cancelled = false;
+    const fetchEvents = useCallback(async () => {
+        try {
+            const params = new URLSearchParams();
+            params.set('limit', String(limit));
+            if (agentId) params.set('agent_id', agentId);
+            if (kind) params.set('kind', kind);
 
-        async function fetchEvents() {
-            setLoading(true);
+            const data = await fetchJson<{ events: AgentEvent[] }>(
+                `/api/ops/events?${params}`,
+            );
+            setEvents(data.events);
             setError(null);
-
-            let q = supabaseBrowser
-                .from('ops_agent_events')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(limit);
-
-            if (agentId) q = q.eq('agent_id', agentId);
-            if (kind) q = q.eq('kind', kind);
-
-            const { data, error: err } = await q;
-            if (cancelled) return;
-            if (err) {
-                setError(err.message);
-            } else {
-                setEvents((data as AgentEvent[]) ?? []);
-            }
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
             setLoading(false);
         }
+    }, [agentId, kind, limit]);
 
+    useEffect(() => {
         fetchEvents();
+    }, [fetchEvents, refreshKey]);
 
-        // Subscribe to realtime inserts
-        const channel = supabaseBrowser
-            .channel('events-realtime')
-            .on(
-                'postgres_changes',
-                {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'ops_agent_events',
-                },
-                payload => {
-                    const newEvent = payload.new as AgentEvent;
-                    // Apply client-side filter
-                    if (agentId && newEvent.agent_id !== agentId) return;
-                    if (kind && newEvent.kind !== kind) return;
-
-                    setEvents(prev => [newEvent, ...prev].slice(0, limit));
-                },
-            )
-            .subscribe();
-
-        return () => {
-            cancelled = true;
-            supabaseBrowser.removeChannel(channel);
-        };
-    }, [agentId, kind, limit, refreshKey]);
+    // Poll every 5 seconds
+    useInterval(() => {
+        fetchEvents();
+    }, 5000);
 
     const refetch = useCallback(() => setRefreshKey(k => k + 1), []);
 
@@ -94,37 +74,32 @@ export function useMissions(statusFilter?: string) {
     const [error, setError] = useState<string | null>(null);
     const [refreshKey, setRefreshKey] = useState(0);
 
-    useEffect(() => {
-        let cancelled = false;
+    const fetchMissions = useCallback(async () => {
+        try {
+            const params = new URLSearchParams();
+            params.set('limit', '50');
+            if (statusFilter) params.set('status', statusFilter);
 
-        async function fetchMissions() {
-            setLoading(true);
+            const data = await fetchJson<{ missions: Mission[] }>(
+                `/api/ops/missions?${params}`,
+            );
+            setMissions(data.missions);
             setError(null);
-
-            let q = supabaseBrowser
-                .from('ops_missions')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(50);
-
-            if (statusFilter) q = q.eq('status', statusFilter);
-
-            const { data, error: err } = await q;
-            if (cancelled) return;
-            if (err) {
-                setError(err.message);
-            } else {
-                setMissions((data as Mission[]) ?? []);
-            }
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
             setLoading(false);
         }
+    }, [statusFilter]);
 
+    useEffect(() => {
         fetchMissions();
+    }, [fetchMissions, refreshKey]);
 
-        return () => {
-            cancelled = true;
-        };
-    }, [statusFilter, refreshKey]);
+    // Poll every 10 seconds
+    useInterval(() => {
+        fetchMissions();
+    }, 10000);
 
     const refetch = useCallback(() => setRefreshKey(k => k + 1), []);
 
@@ -144,14 +119,16 @@ export function useMissionSteps(missionId: string | null) {
 
         async function fetchSteps() {
             setLoading(true);
-            const { data } = await supabaseBrowser
-                .from('ops_mission_steps')
-                .select('*')
-                .eq('mission_id', missionId)
-                .order('created_at', { ascending: true });
-            if (cancelled) return;
-            setSteps((data as MissionStep[]) ?? []);
-            setLoading(false);
+            try {
+                const data = await fetchJson<{ steps: MissionStep[] }>(
+                    `/api/ops/steps?mission_id=${missionId}`,
+                );
+                if (!cancelled) setSteps(data.steps);
+            } catch {
+                // ignore
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
         }
 
         fetchSteps();
@@ -161,7 +138,6 @@ export function useMissionSteps(missionId: string | null) {
         };
     }, [missionId]);
 
-    // Return empty when no mission selected (avoids setState in effect for null case)
     return {
         steps: missionId ? steps : [],
         loading: missionId ? loading : false,
@@ -181,14 +157,16 @@ export function useMissionEvents(missionId: string | null) {
 
         async function fetchEvents() {
             setLoading(true);
-            const { data } = await supabaseBrowser
-                .from('ops_agent_events')
-                .select('*')
-                .contains('metadata', { missionId })
-                .order('created_at', { ascending: true });
-            if (cancelled) return;
-            setEvents((data as AgentEvent[]) ?? []);
-            setLoading(false);
+            try {
+                const data = await fetchJson<{ events: AgentEvent[] }>(
+                    `/api/ops/events?mission_id=${missionId}`,
+                );
+                if (!cancelled) setEvents(data.events);
+            } catch {
+                // ignore
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
         }
 
         fetchEvents();
@@ -198,7 +176,6 @@ export function useMissionEvents(missionId: string | null) {
         };
     }, [missionId]);
 
-    // Return empty when no mission selected (avoids setState in effect for null case)
     return {
         events: missionId ? events : [],
         loading: missionId ? loading : false,
@@ -212,15 +189,12 @@ export function useConversations(limit = 10) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        supabaseBrowser
-            .from('ops_roundtable_sessions')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(limit)
-            .then(({ data }) => {
-                setSessions((data as RoundtableSession[]) ?? []);
-                setLoading(false);
-            });
+        fetchJson<{ sessions: RoundtableSession[] }>(
+            `/api/ops/roundtable?limit=${limit}`,
+        ).then(data => {
+            setSessions(data.sessions);
+            setLoading(false);
+        });
     }, [limit]);
 
     return { sessions, loading };
@@ -239,14 +213,16 @@ export function useConversationTurns(sessionId: string | null) {
 
         async function fetchTurns() {
             setLoading(true);
-            const { data } = await supabaseBrowser
-                .from('ops_roundtable_turns')
-                .select('*')
-                .eq('session_id', sessionId)
-                .order('turn_number', { ascending: true });
-            if (cancelled) return;
-            setTurns((data as RoundtableTurn[]) ?? []);
-            setLoading(false);
+            try {
+                const data = await fetchJson<{ turns: RoundtableTurn[] }>(
+                    `/api/ops/turns?session_id=${sessionId}`,
+                );
+                if (!cancelled) setTurns(data.turns);
+            } catch {
+                // ignore
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
         }
 
         fetchTurns();
@@ -256,7 +232,6 @@ export function useConversationTurns(sessionId: string | null) {
         };
     }, [sessionId]);
 
-    // Return empty when no session selected (avoids setState in effect for null case)
     return {
         turns: sessionId ? turns : [],
         loading: sessionId ? loading : false,
@@ -277,41 +252,21 @@ export function useSystemStats() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        async function load() {
-            const [events, missions, sessions, memories] = await Promise.all([
-                supabaseBrowser
-                    .from('ops_agent_events')
-                    .select('id', { count: 'exact', head: true }),
-                supabaseBrowser
-                    .from('ops_missions')
-                    .select('id', { count: 'exact', head: true })
-                    .in('status', ['approved', 'running']),
-                supabaseBrowser
-                    .from('ops_roundtable_sessions')
-                    .select('id', { count: 'exact', head: true }),
-                supabaseBrowser
-                    .from('ops_agent_memory')
-                    .select('agent_id')
-                    .is('superseded_by', null),
-            ]);
-
-            const memoryCounts: Record<string, number> = {};
-            if (memories.data) {
-                for (const m of memories.data) {
-                    memoryCounts[m.agent_id] =
-                        (memoryCounts[m.agent_id] ?? 0) + 1;
-                }
-            }
-
-            setStats({
-                totalEvents: events.count ?? 0,
-                activeMissions: missions.count ?? 0,
-                totalConversations: sessions.count ?? 0,
-                agentMemories: memoryCounts,
-            });
-            setLoading(false);
-        }
-        load();
+        fetchJson<{
+            totalEvents: number;
+            activeMissions: number;
+            totalSessions: number;
+            memoriesByAgent: Record<string, number>;
+        }>('/api/ops/stats')
+            .then(data => {
+                setStats({
+                    totalEvents: data.totalEvents,
+                    activeMissions: data.activeMissions,
+                    totalConversations: data.totalSessions,
+                    agentMemories: data.memoriesByAgent,
+                });
+            })
+            .finally(() => setLoading(false));
     }, []);
 
     return { stats, loading };
@@ -337,7 +292,7 @@ export function useTimeOfDay() {
     return period;
 }
 
-// ─── useInterval — for animations ───
+// ─── useInterval — for animations and polling ───
 
 export function useInterval(callback: () => void, delay: number | null) {
     const savedCallback = useRef(callback);

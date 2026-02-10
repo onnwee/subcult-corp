@@ -1,134 +1,73 @@
-// Initiative System — agent-driven proposal generation
-// Heartbeat checks which agents qualify for initiative slots.
-// Qualifying agents get queued; the VPS initiative-worker picks them up,
-// uses LLM to generate a proposal, and submits it through proposal-service.
-import type { SupabaseClient } from '@supabase/supabase-js';
-import type { InitiativeQueueEntry, MemoryEntry } from '../types';
+// Initiative queueing and processing
+import { sql } from '@/lib/db';
 import { AGENT_IDS } from '../agents';
+import { getPolicy } from './policy';
 import { queryAgentMemories } from './memory';
 
-/** Minimum hours between initiative attempts for the same agent */
-const INITIATIVE_COOLDOWN_HOURS = 4;
+const INITIATIVE_COOLDOWN_MINUTES = 120;
+const MIN_MEMORIES_FOR_INITIATIVE = 5;
 
-/** Minimum high-confidence memories required before an agent can propose */
-const MIN_HIGH_CONFIDENCE_MEMORIES = 5;
-const HIGH_CONFIDENCE_THRESHOLD = 0.7;
-
-/**
- * Check whether a single agent qualifies for an initiative slot.
- * Requirements:
- *   1. No queue entry in the last INITIATIVE_COOLDOWN_HOURS
- *   2. At least MIN_HIGH_CONFIDENCE_MEMORIES high-confidence memories
- *   3. At least one "lesson" type memory (agent has learned something)
- *
- * If qualified, inserts a row into ops_initiative_queue with status 'pending'
- * and a context snapshot of the agent's top memories.
- *
- * @returns The queue entry ID if enqueued, null otherwise
- */
 export async function maybeQueueInitiative(
-    sb: SupabaseClient,
     agentId: string,
 ): Promise<string | null> {
-    // ── Cooldown check ──
-    const cooldownCutoff = new Date(
-        Date.now() - INITIATIVE_COOLDOWN_HOURS * 60 * 60 * 1000,
+    // Cooldown check
+    const cutoff = new Date(
+        Date.now() - INITIATIVE_COOLDOWN_MINUTES * 60_000,
     ).toISOString();
 
-    const { count: recentCount } = await sb
-        .from('ops_initiative_queue')
-        .select('id', { count: 'exact', head: true })
-        .eq('agent_id', agentId)
-        .gte('created_at', cooldownCutoff);
+    const [{ count }] = await sql<[{ count: number }]>`
+        SELECT COUNT(*)::int as count FROM ops_initiative_queue
+        WHERE agent_id = ${agentId}
+        AND created_at >= ${cutoff}
+    `;
 
-    if ((recentCount ?? 0) > 0) {
-        return null; // Still in cooldown
-    }
+    if (count > 0) return null;
 
-    // ── Memory prerequisites ──
-    const highConfidenceMemories = await queryAgentMemories(sb, {
+    // Memory prerequisites
+    const memories = await queryAgentMemories({
         agentId,
-        minConfidence: HIGH_CONFIDENCE_THRESHOLD,
-        limit: MIN_HIGH_CONFIDENCE_MEMORIES,
-    });
-
-    if (highConfidenceMemories.length < MIN_HIGH_CONFIDENCE_MEMORIES) {
-        return null; // Not enough high-confidence memories
-    }
-
-    // Must have at least one lesson-type memory
-    const lessons = await queryAgentMemories(sb, {
-        agentId,
-        types: ['lesson'],
-        limit: 1,
+        limit: MIN_MEMORIES_FOR_INITIATIVE,
         minConfidence: 0.55,
     });
 
-    if (lessons.length === 0) {
-        return null; // No lessons learned yet
-    }
+    if (memories.length < MIN_MEMORIES_FOR_INITIATIVE) return null;
 
-    // ── Build context snapshot ──
-    // Gather a broader set of memories to feed the initiative worker
-    const topMemories = await queryAgentMemories(sb, {
-        agentId,
-        limit: 15,
-        minConfidence: 0.6,
-    });
-
-    const context: Record<string, unknown> = {
-        agent_id: agentId,
-        memory_count: topMemories.length,
-        memories: topMemories.map((m: MemoryEntry) => ({
+    // Queue initiative with memory context
+    const context = {
+        memories: memories.map(m => ({
             type: m.type,
             content: m.content,
             confidence: m.confidence,
             tags: m.tags,
         })),
-        queued_at: new Date().toISOString(),
     };
 
-    // ── Enqueue ──
-    const { data, error } = await sb
-        .from('ops_initiative_queue')
-        .insert({
-            agent_id: agentId,
-            status: 'pending',
-            context,
-        })
-        .select('id')
-        .single();
+    const [row] = await sql`
+        INSERT INTO ops_initiative_queue (agent_id, status, context)
+        VALUES (${agentId}, 'pending', ${JSON.stringify(context)}::jsonb)
+        RETURNING id
+    `;
 
-    if (error) {
-        console.error(
-            `[initiative] Failed to enqueue ${agentId}:`,
-            error.message,
-        );
-        return null;
-    }
-
-    console.log(`[initiative] Queued initiative for ${agentId}: ${data.id}`);
-    return data.id;
+    return row.id;
 }
 
-/**
- * Check all agents and queue initiatives for those that qualify.
- * Called by the heartbeat (Phase 6).
- *
- * @returns Number of agents queued
- */
-export async function checkAndQueueInitiatives(
-    sb: SupabaseClient,
-): Promise<{ checked: number; queued: number }> {
-    let queued = 0;
+export async function checkAndQueueInitiatives(): Promise<{
+    checked: number;
+    queued: number;
+}> {
+    const policy = await getPolicy('initiative_policy');
+    if (!(policy.enabled as boolean)) {
+        return { checked: 0, queued: 0 };
+    }
 
+    let queued = 0;
     for (const agentId of AGENT_IDS) {
         try {
-            const id = await maybeQueueInitiative(sb, agentId);
+            const id = await maybeQueueInitiative(agentId);
             if (id) queued++;
         } catch (err) {
             console.error(
-                `[initiative] Error checking ${agentId}:`,
+                `[initiative] Failed to queue for ${agentId}:`,
                 (err as Error).message,
             );
         }
@@ -137,73 +76,51 @@ export async function checkAndQueueInitiatives(
     return { checked: AGENT_IDS.length, queued };
 }
 
-/**
- * Claim a pending initiative entry atomically.
- * Used by the VPS initiative-worker.
- *
- * @returns The claimed entry, or null if none available
- */
-export async function claimNextInitiative(
-    sb: SupabaseClient,
-): Promise<InitiativeQueueEntry | null> {
-    // Find the oldest pending entry
-    const { data: pending } = await sb
-        .from('ops_initiative_queue')
-        .select('*')
-        .eq('status', 'pending')
-        .order('created_at', { ascending: true })
-        .limit(1);
+export async function claimNextInitiative(): Promise<{
+    id: string;
+    agent_id: string;
+    context: Record<string, unknown>;
+} | null> {
+    const [claimed] = await sql`
+        UPDATE ops_initiative_queue
+        SET status = 'processing'
+        WHERE id = (
+            SELECT id FROM ops_initiative_queue
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        )
+        RETURNING id, agent_id, context
+    `;
 
-    if (!pending?.length) return null;
-
-    const entry = pending[0] as InitiativeQueueEntry;
-
-    // Atomic claim — only update if still pending
-    const { data: claimed, error } = await sb
-        .from('ops_initiative_queue')
-        .update({ status: 'processing' })
-        .eq('id', entry.id)
-        .eq('status', 'pending')
-        .select('*')
-        .single();
-
-    if (error || !claimed) return null;
-
-    return claimed as InitiativeQueueEntry;
+    if (!claimed) return null;
+    return claimed as {
+        id: string;
+        agent_id: string;
+        context: Record<string, unknown>;
+    };
 }
 
-/**
- * Mark an initiative entry as completed with its result.
- */
 export async function completeInitiative(
-    sb: SupabaseClient,
-    entryId: string,
+    id: string,
     result: Record<string, unknown>,
 ): Promise<void> {
-    await sb
-        .from('ops_initiative_queue')
-        .update({
-            status: 'completed',
-            processed_at: new Date().toISOString(),
-            result,
-        })
-        .eq('id', entryId);
+    await sql`
+        UPDATE ops_initiative_queue
+        SET status = 'completed',
+            processed_at = NOW(),
+            result = ${JSON.stringify(result)}::jsonb
+        WHERE id = ${id}
+    `;
 }
 
-/**
- * Mark an initiative entry as failed.
- */
-export async function failInitiative(
-    sb: SupabaseClient,
-    entryId: string,
-    error: string,
-): Promise<void> {
-    await sb
-        .from('ops_initiative_queue')
-        .update({
-            status: 'failed',
-            processed_at: new Date().toISOString(),
-            result: { error },
-        })
-        .eq('id', entryId);
+export async function failInitiative(id: string, error: string): Promise<void> {
+    await sql`
+        UPDATE ops_initiative_queue
+        SET status = 'failed',
+            processed_at = NOW(),
+            result = ${JSON.stringify({ error })}::jsonb
+        WHERE id = ${id}
+    `;
 }

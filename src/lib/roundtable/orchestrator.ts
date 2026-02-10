@@ -1,6 +1,6 @@
 // Roundtable Orchestrator — turn-by-turn conversation generation
 // The VPS worker calls this to run a conversation session
-import type { SupabaseClient } from '@supabase/supabase-js';
+import { sql } from '@/lib/db';
 import type {
     ConversationFormat,
     ConversationTurnEntry,
@@ -105,13 +105,11 @@ function buildUserPrompt(
  * Generates dialogue turn by turn, stores each turn to the database,
  * and emits events for the frontend.
  *
- * @param sb - Supabase client
  * @param session - The session record from ops_roundtable_sessions
- * @param delayBetweenTurns - ms to wait between turns (3-8s for natural feel)
+ * @param delayBetweenTurns - whether to wait between turns (3-8s for natural feel)
  * @returns Array of conversation turns
  */
 export async function orchestrateConversation(
-    sb: SupabaseClient,
     session: RoundtableSession,
     delayBetweenTurns: boolean = true,
 ): Promise<ConversationTurnEntry[]> {
@@ -120,13 +118,13 @@ export async function orchestrateConversation(
     const history: ConversationTurnEntry[] = [];
 
     // Load affinity map once for the entire conversation
-    const affinityMap = await loadAffinityMap(sb);
+    const affinityMap = await loadAffinityMap();
 
     // Derive voice modifiers once per participant (cached per conversation)
     const voiceModifiersMap = new Map<string, string[]>();
     for (const participant of session.participants) {
         try {
-            const mods = await deriveVoiceModifiers(sb, participant);
+            const mods = await deriveVoiceModifiers(participant);
             voiceModifiersMap.set(participant, mods);
         } catch (err) {
             console.error(
@@ -138,16 +136,14 @@ export async function orchestrateConversation(
     }
 
     // Mark session as running
-    await sb
-        .from('ops_roundtable_sessions')
-        .update({
-            status: 'running',
-            started_at: new Date().toISOString(),
-        })
-        .eq('id', session.id);
+    await sql`
+        UPDATE ops_roundtable_sessions
+        SET status = 'running', started_at = NOW()
+        WHERE id = ${session.id}
+    `;
 
     // Emit session start event
-    await emitEvent(sb, {
+    await emitEvent({
         agent_id: 'system',
         kind: 'conversation_started',
         title: `${session.format} started: ${session.topic}`,
@@ -224,22 +220,20 @@ export async function orchestrateConversation(
             history.push(entry);
 
             // Store turn in database
-            await sb.from('ops_roundtable_turns').insert({
-                session_id: session.id,
-                turn_number: turn,
-                speaker,
-                dialogue,
-                metadata: { speakerName },
-            });
+            await sql`
+                INSERT INTO ops_roundtable_turns (session_id, turn_number, speaker, dialogue, metadata)
+                VALUES (${session.id}, ${turn}, ${speaker}, ${dialogue}, ${JSON.stringify({ speakerName })}::jsonb)
+            `;
 
             // Update session turn count
-            await sb
-                .from('ops_roundtable_sessions')
-                .update({ turn_count: turn + 1 })
-                .eq('id', session.id);
+            await sql`
+                UPDATE ops_roundtable_sessions
+                SET turn_count = ${turn + 1}
+                WHERE id = ${session.id}
+            `;
 
             // Emit turn event
-            await emitEvent(sb, {
+            await emitEvent({
                 agent_id: speaker,
                 kind: 'conversation_turn',
                 title: `${speakerName}: ${dialogue}`,
@@ -259,17 +253,16 @@ export async function orchestrateConversation(
         }
 
         // Mark session as completed
-        await sb
-            .from('ops_roundtable_sessions')
-            .update({
-                status: 'completed',
-                turn_count: history.length,
-                completed_at: new Date().toISOString(),
-            })
-            .eq('id', session.id);
+        await sql`
+            UPDATE ops_roundtable_sessions
+            SET status = 'completed',
+                turn_count = ${history.length},
+                completed_at = NOW()
+            WHERE id = ${session.id}
+        `;
 
         // Emit completion event
-        await emitEvent(sb, {
+        await emitEvent({
             agent_id: 'system',
             kind: 'conversation_completed',
             title: `${session.format} completed: ${session.topic}`,
@@ -285,7 +278,6 @@ export async function orchestrateConversation(
         // Distill memories from the conversation (best-effort)
         try {
             await distillConversationMemories(
-                sb,
                 session.id,
                 history,
                 session.format,
@@ -300,19 +292,19 @@ export async function orchestrateConversation(
         return history;
     } catch (err) {
         // Mark session as failed
-        await sb
-            .from('ops_roundtable_sessions')
-            .update({
-                status: 'failed',
-                completed_at: new Date().toISOString(),
-                metadata: {
-                    ...session.metadata,
-                    error: (err as Error).message,
-                },
-            })
-            .eq('id', session.id);
+        const errorMeta = {
+            ...session.metadata,
+            error: (err as Error).message,
+        };
+        await sql`
+            UPDATE ops_roundtable_sessions
+            SET status = 'failed',
+                completed_at = NOW(),
+                metadata = ${JSON.stringify(errorMeta)}::jsonb
+            WHERE id = ${session.id}
+        `;
 
-        await emitEvent(sb, {
+        await emitEvent({
             agent_id: 'system',
             kind: 'conversation_failed',
             title: `${session.format} failed: ${session.topic}`,
@@ -333,51 +325,43 @@ export async function orchestrateConversation(
  * Enqueue a new conversation session.
  * Returns the created session ID.
  */
-export async function enqueueConversation(
-    sb: SupabaseClient,
-    options: {
-        format: ConversationFormat;
-        topic: string;
-        participants: string[];
-        scheduleSlot?: string;
-        scheduledFor?: string;
-    },
-): Promise<string> {
-    const { data, error } = await sb
-        .from('ops_roundtable_sessions')
-        .insert({
-            format: options.format,
-            topic: options.topic,
-            participants: options.participants,
-            status: 'pending',
-            schedule_slot: options.scheduleSlot ?? null,
-            scheduled_for: options.scheduledFor ?? new Date().toISOString(),
-        })
-        .select('id')
-        .single();
+export async function enqueueConversation(options: {
+    format: ConversationFormat;
+    topic: string;
+    participants: string[];
+    scheduleSlot?: string;
+    scheduledFor?: string;
+}): Promise<string> {
+    const [row] = await sql<[{ id: string }]>`
+        INSERT INTO ops_roundtable_sessions (format, topic, participants, status, schedule_slot, scheduled_for)
+        VALUES (
+            ${options.format},
+            ${options.topic},
+            ${options.participants},
+            'pending',
+            ${options.scheduleSlot ?? null},
+            ${options.scheduledFor ?? new Date().toISOString()}
+        )
+        RETURNING id
+    `;
 
-    if (error || !data) {
-        throw new Error(
-            `Failed to enqueue conversation: ${error?.message ?? 'unknown'}`,
-        );
-    }
-
-    return data.id;
+    return row.id;
 }
 
 /**
  * Check the schedule and enqueue any conversations that should fire now.
  * Called by the heartbeat.
  */
-export async function checkScheduleAndEnqueue(
-    sb: SupabaseClient,
-): Promise<{ checked: boolean; enqueued: string | null }> {
+export async function checkScheduleAndEnqueue(): Promise<{
+    checked: boolean;
+    enqueued: string | null;
+}> {
     // Lazy import to avoid circular deps at module load
     const { getSlotForHour, shouldSlotFire } = await import('./schedule');
     const { getPolicy } = await import('../ops/policy');
 
     // Check if roundtable is enabled
-    const roundtablePolicy = await getPolicy(sb, 'roundtable_policy');
+    const roundtablePolicy = await getPolicy('roundtable_policy');
     if (!(roundtablePolicy.enabled as boolean)) {
         return { checked: true, enqueued: null };
     }
@@ -387,12 +371,12 @@ export async function checkScheduleAndEnqueue(
     const todayStart = new Date();
     todayStart.setUTCHours(0, 0, 0, 0);
 
-    const { count: todayCount } = await sb
-        .from('ops_roundtable_sessions')
-        .select('id', { count: 'exact', head: true })
-        .gte('created_at', todayStart.toISOString());
+    const [{ count: todayCount }] = await sql<[{ count: number }]>`
+        SELECT COUNT(*)::int as count FROM ops_roundtable_sessions
+        WHERE created_at >= ${todayStart.toISOString()}
+    `;
 
-    if ((todayCount ?? 0) >= maxDaily) {
+    if (todayCount >= maxDaily) {
         return { checked: true, enqueued: null };
     }
 
@@ -407,13 +391,13 @@ export async function checkScheduleAndEnqueue(
     const hourStart = new Date();
     hourStart.setUTCMinutes(0, 0, 0);
 
-    const { count: existingCount } = await sb
-        .from('ops_roundtable_sessions')
-        .select('id', { count: 'exact', head: true })
-        .eq('schedule_slot', slot.name)
-        .gte('created_at', hourStart.toISOString());
+    const [{ count: existingCount }] = await sql<[{ count: number }]>`
+        SELECT COUNT(*)::int as count FROM ops_roundtable_sessions
+        WHERE schedule_slot = ${slot.name}
+        AND created_at >= ${hourStart.toISOString()}
+    `;
 
-    if ((existingCount ?? 0) > 0) {
+    if (existingCount > 0) {
         return { checked: true, enqueued: null };
     }
 
@@ -426,7 +410,7 @@ export async function checkScheduleAndEnqueue(
     const topic = generateTopic(slot);
 
     // Enqueue the conversation
-    const sessionId = await enqueueConversation(sb, {
+    const sessionId = await enqueueConversation({
         format: slot.format,
         topic,
         participants: slot.participants,

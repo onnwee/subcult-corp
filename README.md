@@ -39,9 +39,35 @@ Agent proposes → Proposal approved → Mission created → Steps queued
 
 ### 2. Configure environment
 
+Copy `.env.example` to `.env.local` and configure:
+
 ```bash
-# Fill in your Supabase URL and service role key in .env.local
-# Set a CRON_SECRET for heartbeat auth
+# OpenRouter SDK — get your key at https://openrouter.ai/settings/keys
+OPENROUTER_API_KEY=sk-or-v1-your-key-here
+
+# Default model (browse models at https://openrouter.ai/models)
+LLM_MODEL=anthropic/claude-sonnet-4
+
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=your-anon-key
+SUPABASE_SECRET_KEY=your-service-role-key
+
+# Cron auth
+CRON_SECRET=$(openssl rand -hex 32)
+```
+
+#### Using Multiple Models
+
+You can override the default model per request in code:
+
+```typescript
+// Use a different model for this specific call
+await llmGenerate({
+    messages: [...],
+    model: 'openai/gpt-4o', // Override default
+    temperature: 0.7,
+});
 ```
 
 ### 3. Seed initial data

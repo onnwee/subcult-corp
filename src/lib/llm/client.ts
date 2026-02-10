@@ -1,49 +1,72 @@
-// LLM client — OpenAI-compatible API abstraction
-// Works with OpenAI, Anthropic (via proxy), local models, etc.
+// LLM client — OpenRouter SDK
+// Uses the OpenRouter TypeScript SDK for access to 300+ models
+// via a single, type-safe interface.
+import { OpenRouter } from '@openrouter/sdk';
 import type { LLMGenerateOptions } from '../types';
 
-const LLM_BASE_URL = process.env.LLM_BASE_URL ?? 'https://api.openai.com/v1';
-const LLM_API_KEY = process.env.LLM_API_KEY ?? '';
-const LLM_MODEL = process.env.LLM_MODEL ?? 'gpt-4o-mini';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? '';
+const LLM_MODEL = process.env.LLM_MODEL ?? 'openrouter/auto';
+
+let _client: OpenRouter | null = null;
+
+function getClient(): OpenRouter {
+    if (!_client) {
+        if (!OPENROUTER_API_KEY) {
+            throw new Error(
+                'Missing OPENROUTER_API_KEY environment variable. Set it in .env.local',
+            );
+        }
+        _client = new OpenRouter({ apiKey: OPENROUTER_API_KEY });
+    }
+    return _client;
+}
+
+/** Re-export the singleton for direct SDK access when needed */
+export { getClient as getOpenRouterClient };
 
 export async function llmGenerate(
     options: LLMGenerateOptions,
 ): Promise<string> {
-    const { messages, temperature = 0.7, maxTokens = 200 } = options;
+    const { messages, temperature = 0.7, maxTokens = 200, model } = options;
 
-    if (!LLM_API_KEY) {
-        throw new Error(
-            'Missing LLM_API_KEY environment variable. Set it in .env.local',
-        );
-    }
+    const client = getClient();
+    const effectiveModel = model ?? LLM_MODEL;
 
-    const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${LLM_API_KEY}`,
-        },
-        body: JSON.stringify({
-            model: LLM_MODEL,
-            messages: messages.map(m => ({
-                role: m.role,
+    // Separate system instructions from conversation messages
+    const systemMessage = messages.find(m => m.role === 'system');
+    const conversationMessages = messages.filter(m => m.role !== 'system');
+
+    try {
+        const result = client.callModel({
+            model: effectiveModel,
+            ...(systemMessage ? { instructions: systemMessage.content } : {}),
+            input: conversationMessages.map(m => ({
+                role: m.role as 'user' | 'assistant',
                 content: m.content,
             })),
             temperature,
-            max_tokens: maxTokens,
-        }),
-    });
+            maxOutputTokens: maxTokens,
+        });
 
-    if (!response.ok) {
-        const errorBody = await response.text().catch(() => 'unknown');
-        throw new Error(`LLM API error (${response.status}): ${errorBody}`);
+        const text = await result.getText();
+        return text?.trim() ?? '';
+    } catch (error: unknown) {
+        const err = error as { statusCode?: number; message?: string };
+        if (err.statusCode === 401) {
+            throw new Error(
+                'Invalid OpenRouter API key — check your OPENROUTER_API_KEY',
+            );
+        }
+        if (err.statusCode === 402) {
+            throw new Error(
+                'Insufficient OpenRouter credits — add credits at openrouter.ai',
+            );
+        }
+        if (err.statusCode === 429) {
+            throw new Error('OpenRouter rate limited — try again shortly');
+        }
+        throw new Error(`LLM API error: ${err.message ?? 'unknown error'}`);
     }
-
-    const data = (await response.json()) as {
-        choices: Array<{ message: { content: string } }>;
-    };
-
-    return data.choices?.[0]?.message?.content?.trim() ?? '';
 }
 
 /**

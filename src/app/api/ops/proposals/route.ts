@@ -1,6 +1,6 @@
 // /api/ops/proposals — Create and list proposals
 import { NextRequest, NextResponse } from 'next/server';
-import { getServiceClient } from '@/lib/supabase';
+import { sql } from '@/lib/db';
 import { createProposalAndMaybeAutoApprove } from '@/lib/ops/proposal-service';
 
 export const dynamic = 'force-dynamic';
@@ -26,8 +26,7 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        const sb = getServiceClient();
-        const result = await createProposalAndMaybeAutoApprove(sb, {
+        const result = await createProposalAndMaybeAutoApprove({
             agent_id: body.agent_id,
             title: body.title,
             description: body.description,
@@ -62,21 +61,21 @@ export async function GET(req: NextRequest) {
     const agentId = searchParams.get('agent_id');
     const limit = parseInt(searchParams.get('limit') ?? '50', 10);
 
-    const sb = getServiceClient();
-    let query = sb
-        .from('ops_mission_proposals')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(limit);
+    try {
+        const rows = await sql`
+            SELECT * FROM ops_mission_proposals
+            WHERE 1=1
+            ${status ? sql`AND status = ${status}` : sql``}
+            ${agentId ? sql`AND agent_id = ${agentId}` : sql``}
+            ORDER BY created_at DESC
+            LIMIT ${limit}
+        `;
 
-    if (status) query = query.eq('status', status);
-    if (agentId) query = query.eq('agent_id', agentId);
-
-    const { data, error } = await query;
-
-    if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ proposals: rows });
+    } catch (err) {
+        return NextResponse.json(
+            { error: (err as Error).message },
+            { status: 500 },
+        );
     }
-
-    return NextResponse.json({ proposals: data });
 }

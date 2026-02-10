@@ -1,42 +1,38 @@
 // Event emitter — write to ops_agent_events
-import type { SupabaseClient } from '@supabase/supabase-js';
+import { sql } from '@/lib/db';
 import type { EventInput } from '../types';
 
-export async function emitEvent(
-    sb: SupabaseClient,
-    input: EventInput,
-): Promise<string> {
-    const { data, error } = await sb
-        .from('ops_agent_events')
-        .insert({
-            agent_id: input.agent_id,
-            kind: input.kind,
-            title: input.title,
-            summary: input.summary ?? null,
-            tags: input.tags ?? [],
-            metadata: input.metadata ?? {},
-        })
-        .select('id')
-        .single();
+export async function emitEvent(input: EventInput): Promise<string> {
+    try {
+        const meta = input.metadata ?? {};
+        const [row] = await sql`
+            INSERT INTO ops_agent_events (agent_id, kind, title, summary, tags, metadata)
+            VALUES (
+                ${input.agent_id},
+                ${input.kind},
+                ${input.title},
+                ${input.summary ?? null},
+                ${input.tags ?? []},
+                ${JSON.stringify(meta)}::jsonb
+            )
+            RETURNING id`;
 
-    if (error) {
-        console.error('[event] Failed to emit event:', error.message);
-        throw new Error(`Failed to emit event: ${error.message}`);
+        return row.id;
+    } catch (err) {
+        console.error('[event] Failed to emit event:', (err as Error).message);
+        throw new Error(`Failed to emit event: ${(err as Error).message}`);
     }
-
-    return data.id;
 }
 
 // Check reaction matrix after emitting an event
 export async function emitEventAndCheckReactions(
-    sb: SupabaseClient,
     input: EventInput,
 ): Promise<string> {
-    const eventId = await emitEvent(sb, input);
+    const eventId = await emitEvent(input);
 
     // Lazy import to avoid circular deps
     const { checkReactionMatrix } = await import('./reaction-matrix');
-    await checkReactionMatrix(sb, eventId, input);
+    await checkReactionMatrix(eventId, input);
 
     return eventId;
 }

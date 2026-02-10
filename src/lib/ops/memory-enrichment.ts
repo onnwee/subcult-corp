@@ -1,93 +1,67 @@
-// Memory Enrichment — influence topic selection with agent memories
-// 30% chance that a proactive trigger's topic gets adjusted based on past memories.
-// This makes agents gradually specialize and avoid repeating mistakes.
-import type { SupabaseClient } from '@supabase/supabase-js';
-import type { MemoryCache, MemoryEnrichmentResult } from '../types';
+// Memory enrichment — enhance topics with relevant agent memories
+import type {
+    MemoryCache,
+    MemoryEntry,
+    MemoryEnrichmentResult,
+} from '../types';
 import { getCachedMemories } from './memory';
 
-const ENRICHMENT_PROBABILITY = 0.3;
-
-/**
- * Possibly enrich a trigger topic with agent memory.
- *
- * 70% of the time: returns baseTopic unchanged.
- * 30% of the time: queries agent's strategy/lesson memories,
- * looks for keyword overlap with available topics, and returns
- * the best match.
- */
 export async function enrichTopicWithMemory(
-    sb: SupabaseClient,
     agentId: string,
-    baseTopic: string,
-    allTopics: string[],
+    topic: string,
     cache: MemoryCache,
 ): Promise<MemoryEnrichmentResult> {
-    // 70% — no enrichment
-    if (Math.random() > ENRICHMENT_PROBABILITY) {
-        return { topic: baseTopic, memoryInfluenced: false };
+    const memories = await getCachedMemories(agentId, cache);
+
+    if (memories.length === 0) {
+        return { topic, memoryInfluenced: false };
     }
 
-    // Query strategy + lesson memories for this agent
-    const memories = await getCachedMemories(
-        sb,
-        cache,
-        agentId,
-        ['strategy', 'lesson'],
-        10,
-        0.6,
-    );
+    // Find best tag-overlap match by confidence-weighted score
+    const topicWords = topic
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(w => w.length > 3);
 
-    if (!memories.length) {
-        return { topic: baseTopic, memoryInfluenced: false };
-    }
+    let bestMemory: MemoryEntry | null = null;
+    let bestScore = 0;
 
-    // Try to find a relevant topic from memories
     for (const mem of memories) {
-        const contentLower = mem.content.toLowerCase();
+        const tagMatches = mem.tags.filter(tag =>
+            topicWords.some(
+                word =>
+                    tag.toLowerCase().includes(word) ||
+                    word.includes(tag.toLowerCase()),
+            ),
+        ).length;
 
-        // Check if any memory keywords match available topics
-        for (const candidate of allTopics) {
-            if (candidate === baseTopic) continue; // Don't match self
+        // Also check content overlap
+        const contentWords = mem.content
+            .toLowerCase()
+            .split(/\s+/)
+            .filter(w => w.length > 3);
+        const contentMatches = topicWords.filter(w =>
+            contentWords.some(cw => cw.includes(w) || w.includes(cw)),
+        ).length;
 
-            const candidateLower = candidate.toLowerCase();
-            const candidateWords = candidateLower.split(/\s+/);
+        const score =
+            (tagMatches * 2 + contentMatches) * (mem.confidence ?? 0.5);
 
-            // Check if memory content references this topic
-            const overlap = candidateWords.some(
-                word => word.length > 3 && contentLower.includes(word),
-            );
-
-            if (overlap) {
-                console.log(
-                    `[memory-enrichment] ${agentId}: "${baseTopic}" → "${candidate}" (influenced by memory: "${mem.content.substring(0, 60)}...")`,
-                );
-                return {
-                    topic: candidate,
-                    memoryInfluenced: true,
-                    memoryId: mem.id,
-                };
-            }
-        }
-
-        // Check if memory tags match any topic
-        for (const tag of mem.tags) {
-            const tagLower = tag.toLowerCase();
-            for (const candidate of allTopics) {
-                if (candidate === baseTopic) continue;
-                if (candidate.toLowerCase().includes(tagLower)) {
-                    console.log(
-                        `[memory-enrichment] ${agentId}: "${baseTopic}" → "${candidate}" (tag match: "${tag}")`,
-                    );
-                    return {
-                        topic: candidate,
-                        memoryInfluenced: true,
-                        memoryId: mem.id,
-                    };
-                }
-            }
+        if (score > bestScore) {
+            bestScore = score;
+            bestMemory = mem;
         }
     }
 
-    // No good match found — stick with original
-    return { topic: baseTopic, memoryInfluenced: false };
+    if (!bestMemory || bestScore < 0.5) {
+        return { topic, memoryInfluenced: false };
+    }
+
+    const enriched = `${topic} [Memory context: ${bestMemory.content}]`;
+
+    return {
+        topic: enriched,
+        memoryInfluenced: true,
+        memoryId: bestMemory.id,
+    };
 }

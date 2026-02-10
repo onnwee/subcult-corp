@@ -4,14 +4,15 @@
 //
 // Run: node scripts/go-live/seed-proactive-triggers.mjs
 
-import { createClient } from '@supabase/supabase-js';
+import postgres from 'postgres';
 import dotenv from 'dotenv';
 dotenv.config({ path: ['.env.local', '.env'] });
 
-const sb = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SECRET_KEY,
-);
+if (!process.env.DATABASE_URL) {
+    console.error('Missing DATABASE_URL');
+    process.exit(1);
+}
+const sql = postgres(process.env.DATABASE_URL);
 
 // ─── Proactive triggers ───
 // These fire on a cooldown schedule during heartbeat — no external event needed.
@@ -32,7 +33,7 @@ const proactiveTriggers = [
             jitter_min_minutes: 25,
             jitter_max_minutes: 45,
         },
-        action_config: { target_agent: 'brain' },
+        action_config: { target_agent: 'chora' },
         cooldown_minutes: 180,
         enabled: false, // start disabled — enable when stable
     },
@@ -50,7 +51,7 @@ const proactiveTriggers = [
             jitter_min_minutes: 25,
             jitter_max_minutes: 45,
         },
-        action_config: { target_agent: 'brain' },
+        action_config: { target_agent: 'chora' },
         cooldown_minutes: 240,
         enabled: false,
     },
@@ -68,7 +69,7 @@ const proactiveTriggers = [
             jitter_min_minutes: 30,
             jitter_max_minutes: 45,
         },
-        action_config: { target_agent: 'brain' },
+        action_config: { target_agent: 'chora' },
         cooldown_minutes: 360,
         enabled: false,
     },
@@ -80,7 +81,7 @@ const proactiveTriggers = [
             jitter_min_minutes: 25,
             jitter_max_minutes: 45,
         },
-        action_config: { target_agent: 'observer' },
+        action_config: { target_agent: 'subrosa' },
         cooldown_minutes: 480,
         enabled: false,
     },
@@ -97,7 +98,7 @@ const proactiveTriggers = [
             jitter_min_minutes: 30,
             jitter_max_minutes: 60,
         },
-        action_config: { target_agent: 'opus' },
+        action_config: { target_agent: 'praxis' },
         cooldown_minutes: 720,
         enabled: false,
     },
@@ -109,7 +110,7 @@ const proactiveTriggers = [
             jitter_min_minutes: 10,
             jitter_max_minutes: 30,
         },
-        action_config: { target_agent: 'observer' },
+        action_config: { target_agent: 'subrosa' },
         cooldown_minutes: 360,
         enabled: false,
     },
@@ -121,7 +122,7 @@ const proactiveTriggers = [
             jitter_min_minutes: 20,
             jitter_max_minutes: 40,
         },
-        action_config: { target_agent: 'brain' },
+        action_config: { target_agent: 'chora' },
         cooldown_minutes: 720,
         enabled: false,
     },
@@ -135,11 +136,9 @@ async function seed() {
 
     for (const trigger of proactiveTriggers) {
         // Check if trigger with this name already exists
-        const { data: existing } = await sb
-            .from('ops_trigger_rules')
-            .select('id')
-            .eq('name', trigger.name)
-            .maybeSingle();
+        const [existing] = await sql`
+            SELECT id FROM ops_trigger_rules WHERE name = ${trigger.name}
+        `;
 
         if (existing) {
             console.log(`  ⊘ ${trigger.name} (already exists, skipping)`);
@@ -147,20 +146,30 @@ async function seed() {
             continue;
         }
 
-        const { error } = await sb.from('ops_trigger_rules').insert(trigger);
-
-        if (error) {
-            console.error(`  ✗ ${trigger.name}: ${error.message}`);
-        } else {
+        try {
+            await sql`
+                INSERT INTO ops_trigger_rules (name, trigger_event, conditions, action_config, cooldown_minutes, enabled)
+                VALUES (
+                    ${trigger.name},
+                    ${trigger.trigger_event},
+                    ${JSON.stringify(trigger.conditions)}::jsonb,
+                    ${JSON.stringify(trigger.action_config)}::jsonb,
+                    ${trigger.cooldown_minutes},
+                    ${trigger.enabled}
+                )
+            `;
             console.log(
                 `  ✓ ${trigger.name} (cooldown: ${trigger.cooldown_minutes}m, enabled: ${trigger.enabled})`,
             );
             inserted++;
+        } catch (err) {
+            console.error(`  ✗ ${trigger.name}: ${err.message}`);
         }
     }
 
     console.log(`\nDone. Inserted ${inserted}, skipped ${skipped} existing.`);
     console.log('Tip: Enable individually via ops_policy or SQL when ready.');
+    await sql.end();
 }
 
 seed().catch(err => {

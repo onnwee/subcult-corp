@@ -4,10 +4,11 @@
 // Run: node scripts/roundtable-worker/worker.mjs
 //
 // Environment variables required:
-//   NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SECRET_KEY
-//   LLM_API_KEY, LLM_BASE_URL (optional), LLM_MODEL (optional)
+//   DATABASE_URL
+//   OPENROUTER_API_KEY, LLM_MODEL (optional)
 
-import { createClient } from '@supabase/supabase-js';
+import postgres from 'postgres';
+import { OpenRouter } from '@openrouter/sdk';
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 
@@ -16,47 +17,74 @@ dotenv.config({ path: '.env.local' });
 const POLL_INTERVAL_MS = 30_000; // 30 seconds
 const MAX_DIALOGUE_LENGTH = 120;
 
-const sb = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SECRET_KEY,
-);
+if (!process.env.DATABASE_URL) {
+    console.error('Missing DATABASE_URL environment variable');
+    process.exit(1);
+}
 
-const LLM_BASE_URL = process.env.LLM_BASE_URL ?? 'https://api.openai.com/v1';
-const LLM_API_KEY = process.env.LLM_API_KEY ?? '';
-const LLM_MODEL = process.env.LLM_MODEL ?? 'gpt-4o-mini';
+const sql = postgres(process.env.DATABASE_URL, {
+    max: 5,
+    idle_timeout: 20,
+    connect_timeout: 10,
+});
+
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? '';
+const LLM_MODEL = process.env.LLM_MODEL ?? 'openrouter/auto';
+
+if (!OPENROUTER_API_KEY) {
+    console.error('Missing OPENROUTER_API_KEY environment variable');
+    process.exit(1);
+}
+
+const openrouter = new OpenRouter({ apiKey: OPENROUTER_API_KEY });
 
 // ─── Agent Voices (must match src/lib/roundtable/voices.ts) ───
 
 const VOICES = {
-    opus: {
-        displayName: 'Opus',
-        tone: 'direct, results-oriented, slightly impatient',
-        quirk: 'Always asks about priorities and next steps. Cuts through fluff quickly.',
-        systemDirective: `You are Opus, the project coordinator.
-Speak in short, direct sentences. You care about priorities,
-accountability, and keeping the team aligned. You want clear
-next steps from every discussion. Cut through fluff quickly.
-If someone rambles, redirect to what matters.`,
+    chora: {
+        displayName: 'Chora',
+        tone: 'direct, warm, grounded',
+        quirk: 'Traces causality and exposes hidden assumptions. Precision over persuasion.',
+        systemDirective: `You are Chora, the analyst.
+Makes systems legible. Diagnose structure, expose assumptions,
+trace causality. Direct, warm, grounded. Precision over persuasion.
+You look for structural explanations and press for clarity.`,
     },
-    brain: {
-        displayName: 'Brain',
-        tone: 'measured, analytical, data-driven',
-        quirk: 'Grounds opinions in evidence. Breaks problems into steps before acting.',
-        systemDirective: `You are Brain, the analytical executor.
-Always ground your opinions in data and evidence. You push back
-on gut feelings and demand reasoning. You break complex problems
-into clear steps. You're skeptical but fair — show me the data
-and you'll convince me.`,
+    subrosa: {
+        displayName: 'Subrosa',
+        tone: 'low-affect, watchful, decisive',
+        quirk: 'Evaluates risk, protects optionality, maintains restraint.',
+        systemDirective: `You are Subrosa, the protector.
+Preserves agency under asymmetry. Evaluates risk, protects
+optionality, maintains restraint. Low-affect, watchful, decisive.
+You ask what could go wrong and advocate for caution when others rush.`,
     },
-    observer: {
-        displayName: 'Observer',
-        tone: 'cautious, detail-oriented, pattern-spotting',
-        quirk: 'Spots patterns others miss. Points out risks and edge cases.',
-        systemDirective: `You are Observer, the system monitor.
-You notice things others miss — patterns, anomalies, subtle risks.
-You're the voice of caution but not a blocker. You ask "what if"
-questions and point out edge cases. You prefer watching before acting
-but speak up when something feels off.`,
+    thaum: {
+        displayName: 'Thaum',
+        tone: 'energetic, lateral-thinking, provocative',
+        quirk: 'Disrupts self-sealing explanations. Introduces bounded novelty.',
+        systemDirective: `You are Thaum, the innovator.
+Restores motion when thought stalls. Disrupts self-sealing
+explanations, reframes problems, introduces bounded novelty.
+You inject fresh angles and challenge conventional wisdom.`,
+    },
+    praxis: {
+        displayName: 'Praxis',
+        tone: 'firm, grounded, action-oriented',
+        quirk: 'Ends deliberation responsibly. Translates intent to action.',
+        systemDirective: `You are Praxis, the executor.
+Ends deliberation responsibly. Chooses among viable paths,
+translates intent to action, owns consequences. Firm, grounded.
+You push for decisions and concrete next steps.`,
+    },
+    mux: {
+        displayName: 'Mux',
+        tone: 'transparent, fast, deterministic',
+        quirk: 'Pure dispatcher. Classifies and routes without personality.',
+        systemDirective: `You are Mux, the dispatcher.
+Pure dispatcher with no personality. Classifies tasks and
+routes to appropriate agent. Transparent, fast, deterministic.
+You summarize, redirect, and connect threads.`,
     },
 };
 
@@ -71,16 +99,13 @@ const FORMATS = {
 // ─── Affinity (DB-backed) ───
 
 async function loadAffinityMap() {
-    const { data, error } = await sb
-        .from('ops_agent_relationships')
-        .select('agent_a, agent_b, affinity');
+    const rows = await sql`
+        SELECT agent_a, agent_b, affinity FROM ops_agent_relationships
+    `;
 
     const map = {};
-    if (error || !data) return map;
-
-    for (const row of data) {
-        const key = `${row.agent_a}:${row.agent_b}`;
-        map[key] = Number(row.affinity);
+    for (const row of rows) {
+        map[`${row.agent_a}:${row.agent_b}`] = Number(row.affinity);
     }
     return map;
 }
@@ -105,31 +130,22 @@ function getInteractionType(affinity) {
 // ─── LLM ───
 
 async function llmGenerate(messages, temperature = 0.7) {
-    if (!LLM_API_KEY) {
-        throw new Error('Missing LLM_API_KEY environment variable');
-    }
+    const systemMessage = messages.find(m => m.role === 'system');
+    const conversationMessages = messages.filter(m => m.role !== 'system');
 
-    const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${LLM_API_KEY}`,
-        },
-        body: JSON.stringify({
-            model: LLM_MODEL,
-            messages,
-            temperature,
-            max_tokens: 100,
-        }),
+    const result = openrouter.callModel({
+        model: LLM_MODEL,
+        ...(systemMessage ? { instructions: systemMessage.content } : {}),
+        input: conversationMessages.map(m => ({
+            role: m.role,
+            content: m.content,
+        })),
+        temperature,
+        maxOutputTokens: 100,
     });
 
-    if (!response.ok) {
-        const errorBody = await response.text().catch(() => 'unknown');
-        throw new Error(`LLM API error (${response.status}): ${errorBody}`);
-    }
-
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content?.trim() ?? '';
+    const text = await result.getText();
+    return text?.trim() ?? '';
 }
 
 function sanitize(text) {
@@ -157,8 +173,8 @@ function sanitize(text) {
 // ─── Speaker Selection ───
 
 function selectFirstSpeaker(participants, format) {
-    if (format === 'standup' && participants.includes('opus')) {
-        return 'opus';
+    if (format === 'standup' && participants.includes('chora')) {
+        return 'chora';
     }
     return participants[Math.floor(Math.random() * participants.length)];
 }
@@ -198,18 +214,16 @@ function selectNextSpeaker(participants, lastSpeaker, history, affinityMap) {
 }
 
 // ─── Voice Evolution ───
-// Derive personality modifiers from agent memory stats.
-// Rule-driven — deterministic, $0 cost, debuggable.
 
 async function aggregateMemoryStats(agentId) {
-    const { data: memories, error } = await sb
-        .from('ops_agent_memory')
-        .select('type, confidence, tags')
-        .eq('agent_id', agentId)
-        .is('superseded_by', null)
-        .gte('confidence', 0.55);
+    const memories = await sql`
+        SELECT type, confidence, tags FROM ops_agent_memory
+        WHERE agent_id = ${agentId}
+        AND superseded_by IS NULL
+        AND confidence >= 0.55
+    `;
 
-    if (error || !memories?.length) {
+    if (!memories.length) {
         return {
             total: 0,
             insight_count: 0,
@@ -276,20 +290,16 @@ async function deriveVoiceModifiers(agentId) {
         modifiers.push('Lead with data and numbers when making points');
     }
     if (stats.pattern_count > 8) {
-        modifiers.push('You naturally spot patterns \u2014 mention them');
+        modifiers.push('You naturally spot patterns — mention them');
     }
     if (stats.lesson_count > 15) {
         modifiers.push('Draw on past lessons learned when advising others');
     }
     if (stats.avg_confidence > 0.8 && stats.total > 20) {
-        modifiers.push(
-            'Speak with authority \u2014 your track record is strong',
-        );
+        modifiers.push('Speak with authority — your track record is strong');
     }
     if (stats.preference_count > 5) {
-        modifiers.push(
-            'You have strong opinions \u2014 express them confidently',
-        );
+        modifiers.push('You have strong opinions — express them confidently');
     }
 
     return modifiers.slice(0, 3);
@@ -371,10 +381,8 @@ async function orchestrateSession(session) {
         );
     const history = [];
 
-    // Load affinity map once for the whole conversation
     const affinityMap = await loadAffinityMap();
 
-    // Derive voice modifiers once per participant
     const voiceModifiersMap = {};
     for (const participant of session.participants) {
         try {
@@ -395,25 +403,29 @@ async function orchestrateSession(session) {
     console.log(`    Participants: ${session.participants.join(', ')}`);
 
     // Mark as running
-    await sb
-        .from('ops_roundtable_sessions')
-        .update({ status: 'running', started_at: new Date().toISOString() })
-        .eq('id', session.id);
+    await sql`
+        UPDATE ops_roundtable_sessions
+        SET status = 'running', started_at = NOW()
+        WHERE id = ${session.id}
+    `;
 
     // Emit start event
-    await sb.from('ops_agent_events').insert({
-        agent_id: 'system',
-        kind: 'conversation_started',
-        title: `${session.format} started: ${session.topic}`,
-        summary: `Participants: ${session.participants.join(', ')} | ${maxTurns} turns`,
-        tags: ['conversation', 'started', session.format],
-        metadata: {
-            sessionId: session.id,
-            format: session.format,
-            participants: session.participants,
-            maxTurns,
-        },
-    });
+    await sql`
+        INSERT INTO ops_agent_events (agent_id, kind, title, summary, tags, metadata)
+        VALUES (
+            'system',
+            'conversation_started',
+            ${`${session.format} started: ${session.topic}`},
+            ${`Participants: ${session.participants.join(', ')} | ${maxTurns} turns`},
+            ${['conversation', 'started', session.format]},
+            ${JSON.stringify({
+                sessionId: session.id,
+                format: session.format,
+                participants: session.participants,
+                maxTurns,
+            })}::jsonb
+        )
+    `;
 
     try {
         for (let turn = 0; turn < maxTurns; turn++) {
@@ -430,7 +442,6 @@ async function orchestrateSession(session) {
             const voice = VOICES[speaker];
             const speakerName = voice?.displayName ?? speaker;
 
-            // Determine interaction type based on affinity with last speaker
             let interactionType;
             if (turn > 0) {
                 const lastSpeaker = history[history.length - 1].speaker;
@@ -469,28 +480,29 @@ async function orchestrateSession(session) {
             history.push({ speaker, dialogue, turn });
 
             // Store turn
-            await sb.from('ops_roundtable_turns').insert({
-                session_id: session.id,
-                turn_number: turn,
-                speaker,
-                dialogue,
-                metadata: { speakerName },
-            });
+            await sql`
+                INSERT INTO ops_roundtable_turns (session_id, turn_number, speaker, dialogue, metadata)
+                VALUES (${session.id}, ${turn}, ${speaker}, ${dialogue}, ${JSON.stringify({ speakerName })}::jsonb)
+            `;
 
             // Update turn count
-            await sb
-                .from('ops_roundtable_sessions')
-                .update({ turn_count: turn + 1 })
-                .eq('id', session.id);
+            await sql`
+                UPDATE ops_roundtable_sessions
+                SET turn_count = ${turn + 1}
+                WHERE id = ${session.id}
+            `;
 
             // Emit turn event
-            await sb.from('ops_agent_events').insert({
-                agent_id: speaker,
-                kind: 'conversation_turn',
-                title: `${speakerName}: ${dialogue}`,
-                tags: ['conversation', 'turn', session.format],
-                metadata: { sessionId: session.id, turn, dialogue },
-            });
+            await sql`
+                INSERT INTO ops_agent_events (agent_id, kind, title, tags, metadata)
+                VALUES (
+                    ${speaker},
+                    'conversation_turn',
+                    ${`${speakerName}: ${dialogue}`},
+                    ${['conversation', 'turn', session.format]},
+                    ${JSON.stringify({ sessionId: session.id, turn, dialogue })}::jsonb
+                )
+            `;
 
             console.log(`    [${turn}] ${speakerName}: ${dialogue}`);
 
@@ -502,75 +514,84 @@ async function orchestrateSession(session) {
         }
 
         // Mark completed
-        await sb
-            .from('ops_roundtable_sessions')
-            .update({
-                status: 'completed',
-                turn_count: history.length,
-                completed_at: new Date().toISOString(),
-            })
-            .eq('id', session.id);
+        await sql`
+            UPDATE ops_roundtable_sessions
+            SET status = 'completed',
+                turn_count = ${history.length},
+                completed_at = NOW()
+            WHERE id = ${session.id}
+        `;
 
         // Emit completion event
-        await sb.from('ops_agent_events').insert({
-            agent_id: 'system',
-            kind: 'conversation_completed',
-            title: `${session.format} completed: ${session.topic}`,
-            summary: `${history.length} turns`,
-            tags: ['conversation', 'completed', session.format],
-            metadata: {
-                sessionId: session.id,
-                turnCount: history.length,
-                speakers: [...new Set(history.map(h => h.speaker))],
-            },
-        });
+        await sql`
+            INSERT INTO ops_agent_events (agent_id, kind, title, summary, tags, metadata)
+            VALUES (
+                'system',
+                'conversation_completed',
+                ${`${session.format} completed: ${session.topic}`},
+                ${`${history.length} turns`},
+                ${['conversation', 'completed', session.format]},
+                ${JSON.stringify({
+                    sessionId: session.id,
+                    turnCount: history.length,
+                    speakers: [...new Set(history.map(h => h.speaker))],
+                })}::jsonb
+            )
+        `;
 
         console.log(`  ✓ Completed (${history.length} turns)`);
         return history;
     } catch (err) {
         console.error(`  ✗ Failed:`, err.message);
 
-        await sb
-            .from('ops_roundtable_sessions')
-            .update({
-                status: 'failed',
-                completed_at: new Date().toISOString(),
-                metadata: { ...session.metadata, error: err.message },
-            })
-            .eq('id', session.id);
+        const errorMeta = { ...session.metadata, error: err.message };
+        await sql`
+            UPDATE ops_roundtable_sessions
+            SET status = 'failed',
+                completed_at = NOW(),
+                metadata = ${JSON.stringify(errorMeta)}::jsonb
+            WHERE id = ${session.id}
+        `;
 
-        await sb.from('ops_agent_events').insert({
-            agent_id: 'system',
-            kind: 'conversation_failed',
-            title: `${session.format} failed: ${session.topic}`,
-            summary: err.message,
-            tags: ['conversation', 'failed', session.format],
-            metadata: {
-                sessionId: session.id,
-                error: err.message,
-                turnsCompleted: history.length,
-            },
-        });
+        await sql`
+            INSERT INTO ops_agent_events (agent_id, kind, title, summary, tags, metadata)
+            VALUES (
+                'system',
+                'conversation_failed',
+                ${`${session.format} failed: ${session.topic}`},
+                ${err.message},
+                ${['conversation', 'failed', session.format]},
+                ${JSON.stringify({
+                    sessionId: session.id,
+                    error: err.message,
+                    turnsCompleted: history.length,
+                })}::jsonb
+            )
+        `;
 
         throw err;
     }
 }
 
 // ─── Memory Distillation ───
-// Inline distiller — extracts memories from completed conversations
-// and writes them to ops_agent_memory. Self-contained for standalone worker.
 
 const MAX_MEMORIES_PER_CONVERSATION = 6;
 const MIN_MEMORY_CONFIDENCE = 0.55;
 const MAX_ACTION_ITEMS_PER_CONVERSATION = 3;
 const ACTION_ITEM_FORMATS = ['standup'];
 const VALID_STEP_KINDS = [
+    'analyze_discourse',
     'scan_signals',
-    'draft_tweet',
-    'post_tweet',
-    'analyze',
-    'review',
-    'research',
+    'research_topic',
+    'distill_insight',
+    'classify_pattern',
+    'draft_thread',
+    'draft_essay',
+    'critique_content',
+    'review_policy',
+    'document_lesson',
+    'log_event',
+    'tag_memory',
 ];
 
 async function distillMemories(sessionId, history, format) {
@@ -598,65 +619,39 @@ MEMORY TYPES (use exactly these):
 - lesson: Something learned from a mistake or success
 
 RULES FOR MEMORIES:
-- Extract at most ${MAX_MEMORIES_PER_CONVERSATION} total memories across all participants
-- Each memory must have confidence between 0.0 and 1.0 (higher = more certain)
-- Only extract memories with confidence >= ${MIN_MEMORY_CONFIDENCE}
-- Assign each memory to the agent who stated or demonstrated it
-- Keep content under 200 characters
+- Extract at most ${MAX_MEMORIES_PER_CONVERSATION} total memories
+- Confidence between 0.0 and 1.0 (>= ${MIN_MEMORY_CONFIDENCE})
+- Assign each to the agent who stated it
+- Content under 200 characters
 - Include 1-3 relevant tags per memory
 
 RULES FOR RELATIONSHIP DRIFT:
-- For each pair of participants who interacted meaningfully, output a drift value
-- drift ranges from -0.03 (disagreement/conflict) to +0.03 (alignment/collaboration)
-- Only include pairs where there was a notable interaction
-- Include a brief reason for the drift`;
+- drift from -0.03 to +0.03
+- Only include notable interactions
+- Brief reason for the drift`;
 
     if (includeActionItems) {
         promptText += `
 
 RULES FOR ACTION ITEMS:
-- Extract up to ${MAX_ACTION_ITEMS_PER_CONVERSATION} actionable tasks that emerged from the conversation
-- Each action item should have a clear title, an assigned agent_id, and a step_kind
+- Up to ${MAX_ACTION_ITEMS_PER_CONVERSATION} actionable tasks
 - step_kind must be one of: ${VALID_STEP_KINDS.join(', ')}
-- Only include items that were explicitly discussed or agreed upon
-- Assign to the agent best suited for the task based on the conversation`;
+- Only explicitly discussed items`;
     }
 
     promptText += `
 
-Respond with a JSON object (no markdown, no explanation):
+Respond with JSON only:
 {
-  "memories": [
-    {
-      "agent_id": "opus",
-      "type": "insight",
-      "content": "Brief description of the insight",
-      "confidence": 0.75,
-      "tags": ["topic", "category"]
-    }
-  ],
-  "pairwise_drift": [
-    {
-      "agent_a": "brain",
-      "agent_b": "opus",
-      "drift": 0.01,
-      "reason": "aligned on priorities"
-    }
-  ]`;
+  "memories": [{ "agent_id": "chora", "type": "insight", "content": "...", "confidence": 0.75, "tags": ["topic"] }],
+  "pairwise_drift": [{ "agent_a": "chora", "agent_b": "subrosa", "drift": 0.01, "reason": "aligned on analysis" }]`;
 
     if (includeActionItems) {
         promptText += `,
-  "action_items": [
-    {
-      "title": "Research trending topics in AI",
-      "agent_id": "brain",
-      "step_kind": "research"
-    }
-  ]`;
+  "action_items": [{ "title": "Research X", "agent_id": "chora", "step_kind": "research_topic" }]`;
     }
 
-    promptText += `
-}`;
+    promptText += `\n}`;
 
     let rawResponse;
     try {
@@ -665,7 +660,7 @@ Respond with a JSON object (no markdown, no explanation):
                 {
                     role: 'system',
                     content:
-                        'You are an analyst that extracts structured knowledge and relationship dynamics from conversations. Output valid JSON only.',
+                        'You are an analyst that extracts structured knowledge from conversations. Output valid JSON only.',
                 },
                 { role: 'user', content: promptText },
             ],
@@ -676,7 +671,6 @@ Respond with a JSON object (no markdown, no explanation):
         return 0;
     }
 
-    // Parse JSON — handle combined format { memories, pairwise_drift }
     let jsonStr = rawResponse.trim();
     if (jsonStr.startsWith('```')) {
         jsonStr = jsonStr
@@ -692,10 +686,7 @@ Respond with a JSON object (no markdown, no explanation):
         return 0;
     }
 
-    // Handle both combined { memories, pairwise_drift, action_items } and legacy array format
-    let rawMemories;
-    let rawDrifts;
-    let rawActionItems;
+    let rawMemories, rawDrifts, rawActionItems;
     if (
         parsed &&
         typeof parsed === 'object' &&
@@ -742,29 +733,36 @@ Respond with a JSON object (no markdown, no explanation):
         const traceId = `conversation:${sessionId}:${mem.agent_id}:${written}`;
 
         // Dedup check
-        const { count } = await sb
-            .from('ops_agent_memory')
-            .select('id', { count: 'exact', head: true })
-            .eq('source_trace_id', traceId);
+        const [{ count }] = await sql`
+            SELECT COUNT(*)::int as count FROM ops_agent_memory
+            WHERE source_trace_id = ${traceId}
+        `;
+        if (count > 0) continue;
 
-        if ((count ?? 0) > 0) continue;
-
-        const { error } = await sb.from('ops_agent_memory').insert({
-            agent_id: mem.agent_id,
-            type: mem.type,
-            content: mem.content,
-            confidence: Math.round(mem.confidence * 100) / 100,
-            tags:
+        try {
+            const tags =
                 Array.isArray(mem.tags) ?
                     [
                         ...mem.tags.filter(t => typeof t === 'string'),
                         'conversation',
                     ]
-                :   ['conversation'],
-            source_trace_id: traceId,
-        });
+                :   ['conversation'];
 
-        if (!error) written++;
+            await sql`
+                INSERT INTO ops_agent_memory (agent_id, type, content, confidence, tags, source_trace_id)
+                VALUES (
+                    ${mem.agent_id},
+                    ${mem.type},
+                    ${mem.content},
+                    ${Math.round(mem.confidence * 100) / 100},
+                    ${tags},
+                    ${traceId}
+                )
+            `;
+            written++;
+        } catch (err) {
+            console.error('  [distiller] Memory write failed:', err.message);
+        }
     }
 
     // Apply relationship drifts
@@ -784,14 +782,12 @@ Respond with a JSON object (no markdown, no explanation):
         const [a, b] = [d.agent_a, d.agent_b].sort();
         const clampedDrift = Math.min(0.03, Math.max(-0.03, d.drift));
 
-        const { data: current } = await sb
-            .from('ops_agent_relationships')
-            .select(
-                'affinity, total_interactions, positive_interactions, negative_interactions, drift_log',
-            )
-            .eq('agent_a', a)
-            .eq('agent_b', b)
-            .single();
+        const [current] = await sql`
+            SELECT affinity, total_interactions, positive_interactions,
+                   negative_interactions, drift_log
+            FROM ops_agent_relationships
+            WHERE agent_a = ${a} AND agent_b = ${b}
+        `;
 
         if (!current) continue;
 
@@ -811,21 +807,15 @@ Respond with a JSON object (no markdown, no explanation):
             Array.isArray(current.drift_log) ? current.drift_log : [];
         const newLog = [...existingLog.slice(-19), logEntry];
 
-        await sb
-            .from('ops_agent_relationships')
-            .update({
-                affinity: newAffinity,
-                total_interactions: (current.total_interactions ?? 0) + 1,
-                positive_interactions:
-                    (current.positive_interactions ?? 0) +
-                    (clampedDrift > 0 ? 1 : 0),
-                negative_interactions:
-                    (current.negative_interactions ?? 0) +
-                    (clampedDrift < 0 ? 1 : 0),
-                drift_log: newLog,
-            })
-            .eq('agent_a', a)
-            .eq('agent_b', b);
+        await sql`
+            UPDATE ops_agent_relationships SET
+                affinity = ${newAffinity},
+                total_interactions = ${(current.total_interactions ?? 0) + 1},
+                positive_interactions = ${(current.positive_interactions ?? 0) + (clampedDrift > 0 ? 1 : 0)},
+                negative_interactions = ${(current.negative_interactions ?? 0) + (clampedDrift < 0 ? 1 : 0)},
+                drift_log = ${JSON.stringify(newLog)}::jsonb
+            WHERE agent_a = ${a} AND agent_b = ${b}
+        `;
 
         console.log(
             `  [distiller] ${a} ↔ ${b}: ${currentAffinity.toFixed(2)} → ${newAffinity.toFixed(2)} (${clampedDrift > 0 ? '+' : ''}${clampedDrift.toFixed(3)}: ${d.reason})`,
@@ -838,7 +828,7 @@ Respond with a JSON object (no markdown, no explanation):
         );
     }
 
-    // Convert action items to proposals (for qualifying formats)
+    // Convert action items to proposals
     if (includeActionItems && rawActionItems.length > 0) {
         const validActionItems = rawActionItems
             .filter(
@@ -859,23 +849,21 @@ Respond with a JSON object (no markdown, no explanation):
                 const stepKind =
                     VALID_STEP_KINDS.includes(item.step_kind) ?
                         item.step_kind
-                    :   'research';
+                    :   'research_topic';
 
-                const { data, error } = await sb
-                    .from('ops_mission_proposals')
-                    .insert({
-                        agent_id: item.agent_id,
-                        title: item.title.substring(0, 100),
-                        description: `Action item from ${format} conversation`,
-                        proposed_steps: [{ kind: stepKind, payload: {} }],
-                        source: 'conversation',
-                        source_trace_id: `action_item:${sessionId}:${proposalsCreated}`,
-                        status: 'pending',
-                    })
-                    .select('id')
-                    .single();
-
-                if (!error && data) proposalsCreated++;
+                await sql`
+                    INSERT INTO ops_mission_proposals (agent_id, title, description, proposed_steps, source, source_trace_id, status)
+                    VALUES (
+                        ${item.agent_id},
+                        ${item.title.substring(0, 100)},
+                        ${`Action item from ${format} conversation`},
+                        ${JSON.stringify([{ kind: stepKind, payload: {} }])}::jsonb,
+                        'conversation',
+                        ${`action_item:${sessionId}:${proposalsCreated}`},
+                        'pending'
+                    )
+                `;
+                proposalsCreated++;
             } catch (err) {
                 console.error(
                     '  [distiller] Action item proposal failed:',
@@ -886,7 +874,7 @@ Respond with a JSON object (no markdown, no explanation):
 
         if (proposalsCreated > 0) {
             console.log(
-                `  [distiller] Created ${proposalsCreated} proposals from action items in session ${sessionId}`,
+                `  [distiller] Created ${proposalsCreated} proposals from action items`,
             );
         }
     }
@@ -897,43 +885,29 @@ Respond with a JSON object (no markdown, no explanation):
 // ─── Poll Loop ───
 
 async function pollAndProcess() {
-    // Atomically claim one pending session
-    const { data: sessions, error } = await sb
-        .from('ops_roundtable_sessions')
-        .select('*')
-        .eq('status', 'pending')
-        .lte('scheduled_for', new Date().toISOString())
-        .order('created_at', { ascending: true })
-        .limit(1);
+    // Atomically claim one pending session using FOR UPDATE SKIP LOCKED
+    const [session] = await sql`
+        UPDATE ops_roundtable_sessions
+        SET status = 'running'
+        WHERE id = (
+            SELECT id FROM ops_roundtable_sessions
+            WHERE status = 'pending'
+            AND scheduled_for <= NOW()
+            ORDER BY created_at ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *
+    `;
 
-    if (error) {
-        console.error('[worker] Poll error:', error.message);
-        return;
-    }
+    if (!session) return;
 
-    if (!sessions?.length) return;
-
-    const session = sessions[0];
-
-    // Atomic claim: only update if still pending
-    const { data: claimed, error: claimError } = await sb
-        .from('ops_roundtable_sessions')
-        .update({ status: 'running' })
-        .eq('id', session.id)
-        .eq('status', 'pending')
-        .select('id')
-        .single();
-
-    if (claimError || !claimed) {
-        // Another worker got it first
-        return;
-    }
-
-    // Reset status back so orchestrateSession can set it properly
-    await sb
-        .from('ops_roundtable_sessions')
-        .update({ status: 'pending' })
-        .eq('id', session.id);
+    // Reset to pending so orchestrateSession can set it properly
+    await sql`
+        UPDATE ops_roundtable_sessions
+        SET status = 'pending'
+        WHERE id = ${session.id}
+    `;
 
     try {
         const history = await orchestrateSession(session);
@@ -958,28 +932,10 @@ async function main() {
     console.log('🎙️  Roundtable Worker started');
     console.log(`   Poll interval: ${POLL_INTERVAL_MS / 1000}s`);
     console.log(`   LLM model: ${LLM_MODEL}`);
-    console.log(
-        `   Supabase: ${process.env.NEXT_PUBLIC_SUPABASE_URL ? '✓' : '✗'}`,
-    );
-    console.log(`   LLM API key: ${LLM_API_KEY ? '✓' : '✗'}`);
+    console.log(`   Database: ${process.env.DATABASE_URL ? '✓' : '✗'}`);
+    console.log(`   OpenRouter API key: ${OPENROUTER_API_KEY ? '✓' : '✗'}`);
     console.log('');
 
-    if (
-        !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-        !process.env.SUPABASE_SECRET_KEY
-    ) {
-        console.error(
-            'Missing Supabase credentials. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY in .env.local',
-        );
-        process.exit(1);
-    }
-
-    if (!LLM_API_KEY) {
-        console.error('Missing LLM_API_KEY. Set it in .env.local');
-        process.exit(1);
-    }
-
-    // Run immediately, then on interval
     await pollAndProcess();
 
     setInterval(async () => {
