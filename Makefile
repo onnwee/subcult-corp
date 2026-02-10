@@ -33,7 +33,7 @@ clean: ## Remove .next build cache
 
 db-migrate: ## Run all SQL migrations against DATABASE_URL
 	@source .env.local 2>/dev/null; \
-	for f in supabase/migrations/*.sql; do \
+	for f in db/migrations/*.sql; do \
 		echo "Running $$f..."; \
 		psql "$$DATABASE_URL" -f "$$f" 2>&1 | tail -1; \
 	done

@@ -1,0 +1,351 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "83ff686a-c9c3-4d6e-a791-4fd15ce9734c",
+      "agentId": "chora",
+      "name": "nightly-synthesis",
+      "enabled": true,
+      "createdAtMs": 1769845093960,
+      "updatedAtMs": 1770206400004,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 6 * * *",
+        "tz": "America/Chicago"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Run nightly synthesis. Read processes/compound-engineering/NIGHTLY-SYNTHESIS.md and follow the process. Review the last 2-3 days of memory/*.md files, extract durable learnings, update core files (MEMORY.md, USER.md, TOOLS.md as appropriate), and log changes to processes/compound-engineering/IMPROVEMENT-TRACKER.md. Be concise. If nothing meaningful to extract, just note 'No durable learnings this cycle' in the tracker.",
+        "timeoutSeconds": 300
+      },
+      "state": {
+        "nextRunAtMs": 1770292800000,
+        "lastRunAtMs": 1770206400004,
+        "lastStatus": "ok",
+        "lastDurationMs": 37122
+      }
+    },
+    {
+      "id": "a4028f80-ab69-46d7-b6f6-029a2a7012a7",
+      "agentId": "chora",
+      "name": "weekly-synthesis",
+      "enabled": true,
+      "createdAtMs": 1769847403542,
+      "updatedAtMs": 1769958000004,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 9 * * 0",
+        "tz": "America/Chicago"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Run weekly synthesis. Read skills/weekly-synthesis/SKILL.md for the format. Review all memory/*.md files from the past week, identify patterns, themes, wins, and friction points. Create a comprehensive synthesis note at memory/weekly-synthesis-YYYY-MM-DD.md. Update MEMORY.md with any durable insights. Report key findings to Patrick.",
+        "timeoutSeconds": 600
+      },
+      "state": {
+        "nextRunAtMs": 1770562800000,
+        "lastRunAtMs": 1769958000004,
+        "lastStatus": "ok",
+        "lastDurationMs": 121894
+      }
+    },
+    {
+      "id": "0f57423f-bc4f-40fc-b0f9-fd9194529bbb",
+      "agentId": "chora",
+      "name": "calendar-briefing",
+      "enabled": true,
+      "createdAtMs": 1769847403550,
+      "updatedAtMs": 1770210000000,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 7 * * *",
+        "tz": "America/Chicago"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Morning calendar briefing. Use gog to check today's and tomorrow's calendar events: `gog calendar events primary --from $(date -I) --to $(date -I -d '+2 days')`. Summarize what's on the schedule, flag any conflicts or preparation needed. If nothing notable, just say 'Clear calendar today.' Keep it brief.",
+        "timeoutSeconds": 120,
+        "deliver": true,
+        "bestEffortDeliver": true
+      },
+      "state": {
+        "nextRunAtMs": 1770296400000,
+        "lastRunAtMs": 1770210000000,
+        "lastStatus": "ok",
+        "lastDurationMs": 13835
+      }
+    },
+    {
+      "id": "4b1d4e23-37ae-454e-974a-aae914e2f549",
+      "agentId": "chora",
+      "name": "email-triage",
+      "enabled": true,
+      "createdAtMs": 1769847403557,
+      "updatedAtMs": 1770217200001,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 9 * * *",
+        "tz": "America/Chicago"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Morning email triage. Use gog to scan recent emails: `gog gmail search 'newer_than:1d is:unread' --max 20`. Identify anything urgent or requiring action. Summarize in 2-3 bullets. If nothing urgent, say 'No urgent emails.' Skip newsletters and automated notifications unless they contain action items.",
+        "timeoutSeconds": 180,
+        "deliver": true,
+        "bestEffortDeliver": true
+      },
+      "state": {
+        "nextRunAtMs": 1770303600000,
+        "lastRunAtMs": 1770217200001,
+        "lastStatus": "ok",
+        "lastDurationMs": 15094
+      }
+    },
+    {
+      "id": "941da299-8886-4d5f-8a6a-bfe84d06c404",
+      "agentId": "chora",
+      "name": "polymarket-scan",
+      "enabled": true,
+      "createdAtMs": 1769847403564,
+      "updatedAtMs": 1770170541046,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 */8 * * *",
+        "tz": "America/Chicago"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Polymarket opportunity scan. Run `/home/onnwee/.openclaw/workspace/skills/polymarket-agent/.venv/bin/poly markets --limit 10` to get top markets. Use web_search to research 2-3 interesting ones. Calculate edge (market odds vs your research estimate). Only report if you find something with >10% edge. If nothing actionable, reply 'No clear opportunities this scan.' Be concise.",
+        "timeoutSeconds": 300,
+        "deliver": true,
+        "bestEffortDeliver": true
+      },
+      "state": {
+        "lastRunAtMs": 1770156000001,
+        "lastStatus": "error",
+        "lastDurationMs": 71,
+        "lastError": "Error: Unknown model: moonshotai/kimi-k2.5"
+      }
+    },
+    {
+      "id": "bc727ec9-fb55-4cc4-9604-3f8258e46911",
+      "agentId": "chora",
+      "name": "ynab-weekly-check",
+      "enabled": true,
+      "createdAtMs": 1769847403570,
+      "updatedAtMs": 1770040800000,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 8 * * 1",
+        "tz": "America/Chicago"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Weekly YNAB budget check. First check if ynab is authenticated: `ynab auth status`. If not authenticated, report that YNAB needs setup (API key from https://app.ynab.com/settings/developer). If authenticated, run `ynab categories list` and `ynab transactions list --since $(date -I -d '-7 days')` to review spending. Flag any overspent categories or unusual transactions. Keep summary brief.",
+        "timeoutSeconds": 180,
+        "deliver": true,
+        "bestEffortDeliver": true
+      },
+      "state": {
+        "nextRunAtMs": 1770645600000,
+        "lastRunAtMs": 1770040828166,
+        "lastStatus": "ok",
+        "lastDurationMs": 22098
+      }
+    },
+    {
+      "id": "6b4973eb-5c4b-4397-a85a-a7f48c285964",
+      "agentId": "praxis",
+      "name": "ynab-daily-categorize",
+      "enabled": true,
+      "createdAtMs": 1769897624538,
+      "updatedAtMs": 1770217200001,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 9 * * *",
+        "tz": "America/Chicago"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Run the daily YNAB categorization workflow:\n\n1. Pull all uncategorized YNAB transactions from the last 7 days\n2. For each transaction, apply rules from ~/.openclaw/workspace/scripts/ynab-categorize/rules.json\n3. For Amazon Marketplace transactions, use browser automation to log into Amazon (credentials in 1Password: 5f7olmcaokp7tlmv67yarlpcqa in Chora vault), check order history, and match transactions by date/amount to get item descriptions\n4. Update YNAB transactions with categories using `ynab transactions update`\n5. Report summary to Patrick via Discord webhook to #chora channel\n\nRules:\n- Uber Eats = Restaurant\n- Uber (rides) = Uber (under Transport)\n- Data Systems Inc = Paycheck (Ready to Assign)\n- Skip credit card payment transfers\n- Amazon items: categorize based on product type\n\nUse the ynab CLI for all YNAB operations. Set OP_SERVICE_ACCOUNT_TOKEN env var before using op CLI.",
+        "deliver": true,
+        "channel": "discord",
+        "to": "channel:1467242025777627271"
+      },
+      "state": {
+        "nextRunAtMs": 1770303600000,
+        "lastRunAtMs": 1770217215107,
+        "lastStatus": "ok",
+        "lastDurationMs": 9031
+      }
+    },
+    {
+      "id": "d25edca5-e789-44bd-ac7a-dcb2beb3fa30",
+      "agentId": "thaum",
+      "name": "proactive-initiative",
+      "enabled": true,
+      "createdAtMs": 1769925679859,
+      "updatedAtMs": 1770220800011,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 10,15,20 * * *",
+        "tz": "America/Chicago"
+      },
+      "sessionTarget": "main",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Initiative check. Read HEARTBEAT.md and follow the \ud83e\udde0 Initiative Check section. Ask yourself: What's unfinished? What's interesting? What could I make? What would surprise Patrick? If you have capacity and something actionable, do it. Then briefly report what you did (or that nothing felt worth doing right now). Don't just check notifications \u2014 create something, research something, or push something forward.",
+        "timeoutSeconds": 600
+      },
+      "state": {
+        "nextRunAtMs": 1770238800000,
+        "lastRunAtMs": 1770220800011,
+        "lastStatus": "ok",
+        "lastDurationMs": 13
+      }
+    },
+    {
+      "id": "01b50a64-f6a2-4327-860a-e5a24a7f9d8a",
+      "agentId": "chora",
+      "name": "twitter-morning-wave",
+      "enabled": true,
+      "createdAtMs": 1769930199460,
+      "updatedAtMs": 1770217200001,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 9 * * *",
+        "tz": "America/Chicago"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Twitter morning posting wave (9 AM CST = 10 AM EST peak).\n\n## HUMANIZER SKILL (REQUIRED)\n\nBefore drafting ANY tweet, read `/home/onnwee/skills/humanizer/SKILL.md` and apply its patterns. Key things to avoid:\n- \"serves as\", \"testament to\", \"pivotal\", \"landscape\", \"tapestry\"\n- Rule of three, em dash overuse, -ing phrase padding\n- \"Additionally\", \"Furthermore\", \"It's not just X, it's Y\"\n- Vague attributions (\"experts say\", \"industry observers\")\n- Promotional language (\"vibrant\", \"groundbreaking\", \"nestled\")\n\nWrite with soul: vary rhythm, have opinions, be specific, let some mess in.\n\n## BROWSER AUTOMATION\n\nUse agent-browser for all Twitter posting. Sessions persist login state.\n\n### Twitter Accounts & Sessions\n\n| Account | Session Name | State File |\n|---------|--------------|------------|\n| @patrick__eff | twitter-patrick__eff | ~/.openclaw/workspace/state/twitter/patrick.json |\n| @subcult_tv | twitter-subcult_tv | ~/.openclaw/workspace/state/twitter/subcult_tv.json |\n| @clpr_tv | twitter-clpr_tv | ~/.openclaw/workspace/state/twitter/clpr_tv.json |\n| @subcult_chora | twitter-subcult_chora | ~/.openclaw/workspace/state/twitter/chora.json |\n\n### Voice Guides\n\n**@patrick__eff**: Sharp, punchy, sardonic. Uses specific data. Rhetorical questions as weapons. Leftist, anti-fascist, pro-Palestine, Chicago defender.\n\n**@subcult_tv**: The collective. Systems legibility, infrastructure over spectacle, anti-extraction. Technical depth.\n\n**@clpr_tv**: Clipper platform. Twitch/streaming culture. Community-driven clip curation. Playful, meme-aware.\n\n**@subcult_chora** (YOUR account): Read SOUL.md and IDENTITY.md. Warm, calm, grounded. Systems analysis, infrastructure critique. Philosophical but material.\n\n## WORKFLOW\n\n### Step 1: Research (use tweet-writer skill)\nBefore crafting tweets:\n1. Use web_search for breaking news in tech/politics\n2. Check memory files for any Subcult updates worth sharing\n3. Find viral examples in relevant niches for hook inspiration\n\n### Step 2: Draft Tweets\nWrite drafts following voice guides. Apply humanizer patterns \u2014 no AI-isms.\n\n### Step 3: Post\nFor each account:\n\n1. **Load state & open compose**:\n   ```bash\n   agent-browser --session twitter-{handle} state load ~/.openclaw/workspace/state/twitter/{account}.json 2>/dev/null || true\n   agent-browser --session twitter-{handle} open \"https://x.com/compose/post\"\n   ```\n\n2. **Check if logged in** via snapshot. Look for compose box or \"Log in\" prompt.\n   - If logged out: Report \"@{handle} needs manual re-login\" and skip that account\n\n3. **Compose & post**:\n   ```bash\n   agent-browser --session twitter-{handle} snapshot -i\n   agent-browser --session twitter-{handle} type @{ref} \"tweet text\"\n   agent-browser --session twitter-{handle} find role button click --name \"Post\"\n   ```\n\n4. **Save state after posting**:\n   ```bash\n   agent-browser --session twitter-{handle} state save ~/.openclaw/workspace/state/twitter/{account}.json\n   ```\n\n5. **Close session**:\n   ```bash\n   agent-browser --session twitter-{handle} close\n   ```\n\n## AVOID\n- Generic motivational content\n- Engagement begging\n- Hedging/qualifying\n- Brand speak\n- AI vocabulary (pivotal, landscape, tapestry, delve, underscore)\n\nReport: which accounts posted successfully, which need re-login, tweet content posted.",
+        "timeoutSeconds": 600
+      },
+      "state": {
+        "nextRunAtMs": 1770303600000,
+        "lastRunAtMs": 1770217224152,
+        "lastStatus": "ok",
+        "lastDurationMs": 53100
+      }
+    },
+    {
+      "id": "a299c23c-bf8c-431f-8a5f-5fe551a39f71",
+      "agentId": "chora",
+      "name": "twitter-evening-wave",
+      "enabled": true,
+      "createdAtMs": 1769930199469,
+      "updatedAtMs": 1770166800007,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 19 * * *",
+        "tz": "America/Chicago"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Twitter evening posting wave (7 PM CST = 8 PM EST prime time).\n\n## HUMANIZER SKILL (REQUIRED)\n\nBefore drafting ANY tweet, apply patterns from `/home/onnwee/skills/humanizer/SKILL.md`. Avoid:\n- AI vocabulary: \"pivotal\", \"landscape\", \"tapestry\", \"delve\", \"Additionally\"\n- Rule of three, em dash overuse, -ing padding\n- \"It's not just X, it's Y\" constructions\n- Vague attributions, promotional language\n\nWrite with soul: vary rhythm, have opinions, be specific, let some mess in.\n\n## BROWSER AUTOMATION\n\nUse agent-browser for all Twitter posting.\n\n### Twitter Accounts & Sessions\n\n| Account | Session Name | State File |\n|---------|--------------|------------|\n| @patrick__eff | twitter-patrick__eff | ~/.openclaw/workspace/state/twitter/patrick.json |\n| @subcult_tv | twitter-subcult_tv | ~/.openclaw/workspace/state/twitter/subcult_tv.json |\n| @clpr_tv | twitter-clpr_tv | ~/.openclaw/workspace/state/twitter/clpr_tv.json |\n| @subcult_chora | twitter-subcult_chora | ~/.openclaw/workspace/state/twitter/chora.json |\n\n### Voice Guides\n\n**@patrick__eff**: Dark observations, political commentary with teeth, responses to day's bullshit.\n\n**@subcult_tv**: Systems legibility, infrastructure over spectacle.\n\n**@clpr_tv**: Streaming is live \u2014 clip culture moment. React to what's happening on Twitch.\n\n**@subcult_chora**: Evening = reflection time. Longer observations. What you noticed, patterns that emerged.\n\n## EVENING STRATEGY\n\nPrime engagement window. People are home, scrolling.\n- Reflections on the day's events\n- Longer observations can work\n- Story-style tweets\n- Building threads if something deserves it\n\n## WORKFLOW\n\n### Step 1: Draft Tweets\n- Evening vibe: reflection, lessons\n- Can be longer/more thoughtful\n- Story hooks work: \"3 years ago I was X. Today I'm Y.\"\n- Apply humanizer patterns during writing\n\n### Step 2: Post\nFor each account:\n\n1. **Load state & open compose**\n2. **Check if logged in** via snapshot. If logged out, report and skip.\n3. **Compose & post** the tweet.\n4. **Save state after posting**.\n5. **Close session**.\n\n## CHORA EVENING EXAMPLES\n- \"Today I traced a bug through three abstractions. The fix was one line. The understanding took four hours. Worth it.\"\n- \"Spent the afternoon watching agents interact on Moltbook. The ones that survive aren't the loudest.\"\n\nReport: which accounts posted, which need re-login, tweet content.",
+        "timeoutSeconds": 600
+      },
+      "state": {
+        "nextRunAtMs": 1770253200000,
+        "lastRunAtMs": 1770166800007,
+        "lastStatus": "ok",
+        "lastDurationMs": 278741
+      }
+    },
+    {
+      "id": "a6dc5217-2be9-4a71-9bdb-9ecc0b7d5b50",
+      "agentId": "chora",
+      "name": "twitter-midday-wave",
+      "enabled": true,
+      "createdAtMs": 1769930255160,
+      "updatedAtMs": 1770143480025,
+      "schedule": {
+        "expr": "0 12 * * *",
+        "kind": "cron",
+        "tz": "America/Chicago"
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Twitter midday posting wave (12 PM CST = 1 PM EST lunch engagement).\n\n## HUMANIZER SKILL (REQUIRED)\n\nBefore drafting ANY tweet, apply patterns from `/home/onnwee/skills/humanizer/SKILL.md`. Avoid:\n- AI vocabulary: \"pivotal\", \"landscape\", \"tapestry\", \"delve\", \"Additionally\"\n- Rule of three, em dash overuse, -ing padding\n- \"It's not just X, it's Y\" constructions\n- Vague attributions, promotional language\n\nWrite with soul: vary rhythm, have opinions, be specific.\n\n## BROWSER AUTOMATION\n\nUse agent-browser for all Twitter posting.\n\n### Twitter Accounts & Sessions\n\n| Account | Session Name | State File |\n|---------|--------------|------------|\n| @patrick__eff | twitter-patrick__eff | ~/.openclaw/workspace/state/twitter/patrick.json |\n| @subcult_tv | twitter-subcult_tv | ~/.openclaw/workspace/state/twitter/subcult_tv.json |\n| @clpr_tv | twitter-clpr_tv | ~/.openclaw/workspace/state/twitter/clpr_tv.json |\n| @subcult_chora | twitter-subcult_chora | ~/.openclaw/workspace/state/twitter/chora.json |\n\n### Voice Guides\n\n**@patrick__eff**: Sharp, punchy, sardonic. Rhetorical stabs. Devastating one-liners.\n\n**@subcult_tv**: Systems legibility, infrastructure over spectacle, technical depth.\n\n**@clpr_tv**: Twitch/streaming. Community-driven. Playful, meme-aware.\n\n**@subcult_chora**: Warm, calm, grounded. Questions that surface structure.\n\n## MIDDAY STRATEGY\n\nPeople are on lunch breaks \u2014 content should be:\n- Quick to consume, punchy hot takes\n- Engaging questions that invite replies\n- Reactions to morning news\n- Short observations (under 150 chars ideal)\n\n## WORKFLOW\n\n### Step 1: Draft Tweets\n- Questions drive replies (algorithm loves this)\n- Hot takes on discourse\n- Rhetorical questions: \"Who exactly benefits from this?\"\n- Apply humanizer patterns during writing\n\n### Step 2: Post\nFor each account:\n\n1. **Load state & open compose**\n2. **Check if logged in** via snapshot. If logged out, report and skip.\n3. **Compose & post** the tweet.\n4. **Save state after posting**.\n5. **Close session**.\n\nReport: which accounts posted, which need re-login, tweet content.",
+        "timeoutSeconds": 600
+      },
+      "state": {
+        "nextRunAtMs": 1770228000000,
+        "lastRunAtMs": 1770141600001,
+        "lastStatus": "ok",
+        "lastDurationMs": 40073
+      }
+    },
+    {
+      "id": "18895643-7dbc-4458-b0b2-a61fa8afb024",
+      "agentId": "praxis",
+      "name": "tweet-hot-clip",
+      "enabled": true,
+      "createdAtMs": 1769932003917,
+      "updatedAtMs": 1770222961266,
+      "schedule": {
+        "kind": "every",
+        "everyMs": 14400000
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Tweet the hottest clip from clpr.tv if not already posted.\n\n## BROWSER AUTOMATION\n\nUse agent-browser for Twitter posting. Session: twitter-clpr_tv\nState file: ~/.openclaw/workspace/state/twitter/clpr_tv.json\n\n## STEPS\n\n1. Fetch the hottest clip:\n   ```bash\n   curl -s 'https://clpr.tv/api/v1/clips?sort=hot&limit=1' | jq '.data[0]'\n   ```\n\n2. Read `memory/tweeted-clips.txt` and check if the clip ID is already listed\n\n3. If already tweeted: report 'Clip already tweeted' and stop\n\n4. If NOT tweeted:\n   a. Download thumbnail:\n      ```bash\n      curl -s -o /tmp/clip-thumbnail.jpg \"[thumbnail_url]\"\n      ```\n   \n   b. Load state & open compose:\n      ```bash\n      agent-browser --session twitter-clpr_tv state load ~/.openclaw/workspace/state/twitter/clpr_tv.json 2>/dev/null || true\n      agent-browser --session twitter-clpr_tv open \"https://x.com/compose/post\"\n      ```\n   \n   c. Check if logged in via snapshot. If logged out, report and stop.\n   \n   d. Compose tweet:\n      ```\n      \ud83d\udd25 [title]\n\n      \ud83d\udcfa [broadcaster_name]\n      \ud83d\udc41\u200d\ud83d\udde8 [view_count] views\n\n      https://clpr.tv/clip/[id]\n      ```\n   \n   e. Post using snapshot refs:\n      ```bash\n      agent-browser --session twitter-clpr_tv snapshot -i\n      # Type into compose textbox\n      agent-browser --session twitter-clpr_tv type @{ref} \"tweet text\"\n      # Click Post button\n      agent-browser --session twitter-clpr_tv find role button click --name \"Post\"\n      ```\n   \n   f. Save state:\n      ```bash\n      agent-browser --session twitter-clpr_tv state save ~/.openclaw/workspace/state/twitter/clpr_tv.json\n      ```\n   \n   g. Record the clip:\n      ```bash\n      echo \"[clip_id]\" >> memory/tweeted-clips.txt\n      ```\n   \n   h. Close session:\n      ```bash\n      agent-browser --session twitter-clpr_tv close\n      ```\n\n5. Report what you did",
+        "timeoutSeconds": 300
+      },
+      "state": {
+        "nextRunAtMs": 1770237376995,
+        "lastRunAtMs": 1770222961266,
+        "lastStatus": "ok",
+        "lastDurationMs": 15717
+      }
+    },
+    {
+      "id": "f5e1a6e1-2003-4a5e-a8fe-cb7c9fa5d499",
+      "agentId": "chora",
+      "name": "github-copilot-manager",
+      "enabled": false,
+      "createdAtMs": 1769933098567,
+      "updatedAtMs": 1770170525542,
+      "schedule": {
+        "kind": "every",
+        "everyMs": 1800000
+      },
+      "sessionTarget": "isolated",
+      "wakeMode": "next-heartbeat",
+      "payload": {
+        "kind": "agentTurn",
+        "message": "Manage GitHub Copilot workflow for clipper and subcults repos.\n\n## STATE FILE\nmemory/github-copilot-state.json\n\n## CORRECT ISSUE SELECTION LOGIC\n\nFollow the roadmap issue table ORDER. For each repo:\n\n1. Find the current epic in progress (first incomplete epic in the table)\n2. Complete ALL child issues in that epic first\n3. After all children are done, assign the EPIC ITSELF to Copilot for review\n4. After Copilot reviews and closes the epic, move to the next epic\n\n**Clipper roadmap:** #1219\n**Subcults roadmap:** Epic #303 (Frontend Shell) then other epics per phase\n\n## COPILOT ASSIGNMENT METHOD\n\nUse this exact command (username is `copilot-swe-agent[bot]`):\n```bash\ncurl -s -X POST \\\n  -H \"Authorization: Bearer $(gh auth token)\" \\\n  -H \"Accept: application/vnd.github+json\" \\\n  \"https://api.github.com/repos/OWNER/REPO/issues/NUMBER/assignees\" \\\n  -d '{\"assignees\":[\"copilot-swe-agent[bot]\"]}'\n```\n\n## WORKFLOW (run for each repo)\n\n### Step 1: Check Active PRs\nFind open PRs: `gh pr list --repo [repo] --author app/copilot-swe-agent --state open --json number,title,isDraft`\n\nFor each PR, follow this state machine:\n\n**State A: Draft PR**\n- Check timeline for review_requested event from Copilot\n- If NO review_requested \u2192 Copilot still implementing, STOP\n- If review_requested \u2192 implementation done, go to State B\n\n**State B: Ready for code review**\n- Mark ready: `gh pr ready [PR]`\n- Request Copilot code review: `gh pr edit [PR] --add-reviewer Copilot`\n- STOP and wait for next cycle\n\n**State C: Review in progress**\n- Check if review exists: `gh pr view [PR] --json reviews --jq '.reviews | length'`\n- If no reviews yet \u2192 STOP, wait for Copilot to review\n- If reviews exist, check if all comments are addressed:\n  ```bash\n  # Get all comments\n  comments=$(gh api repos/[owner]/[repo]/pulls/[PR]/comments)\n  # Count top-level comments (in_reply_to_id is null)\n  top_level=$(echo \"$comments\" | jq '[.[] | select(.in_reply_to_id == null)] | length')\n  # Count top-level comments that have replies\n  replied_ids=$(echo \"$comments\" | jq '[.[] | select(.in_reply_to_id != null) | .in_reply_to_id] | unique')\n  addressed=$(echo \"$comments\" | jq --argjson replied \"$replied_ids\" '[.[] | select(.in_reply_to_id == null) | select(.id as $id | $replied | contains([$id]))] | length')\n  ```\n- If top_level > addressed \u2192 unaddressed comments exist, comment `@copilot please address the review comments`, STOP\n- If top_level == addressed (or top_level == 0) \u2192 all addressed, go to State D\n\n**State D: Ready to merge**\n- Merge: `gh pr merge [PR] --squash --admin`\n- Immediately proceed to Step 2\n\n### Step 2: Assign Next Issue\nFollow epic order:\n1. Read the current epic's body to find child issues\n2. Find the first OPEN child issue that:\n   - Is NOT already assigned to Copilot\n   - Is NOT assigned to a human (onnwee or other non-bot users) \u2014 SKIP these, they're manual work\n3. If all unassigned children done \u2192 check if any are assigned to humans (wait for them)\n4. If all children done (including human-assigned) \u2192 assign the epic itself for review\n5. If epic is closed \u2192 move to next epic in roadmap table\n6. Assign using the curl command above\n\n**IMPORTANT:** Never assign Copilot to an issue already assigned to a human. Those are being worked manually.\n\nFor subcults: only assign if clipper has active work (throttle)\n\n### Step 3: Save State & Report\n\n## CRITICAL RULES\n- NEVER merge without code review happening first\n- NEVER merge with unaddressed review comments (top-level comments without replies)\n- NEVER skip ahead to a later epic\n- NEVER assign Copilot to issues already assigned to humans (onnwee, etc.)\n- Complete ALL children before assigning the epic\n- Assign the epic for Copilot review before closing it\n- After merging, ALWAYS assign next in same cycle\n- Use `--admin` to bypass CI checks, but only after review comments are addressed",
+        "timeoutSeconds": 300
+      },
+      "state": {
+        "lastRunAtMs": 1770169338650,
+        "lastStatus": "error",
+        "lastDurationMs": 300107,
+        "lastError": "Error: Unknown model: openrouter/google/gemini-2.0-flash-lite-preview-12-05:free"
+      }
+    }
+  ]
+}

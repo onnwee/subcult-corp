@@ -21,8 +21,8 @@ import { deriveVoiceModifiers } from '../ops/voice-evolution';
 
 /**
  * Build the system prompt for a speaker in a conversation.
- * Includes their voice directive + conversation history so far.
- * Interaction type adjusts tone based on affinity with last speaker.
+ * Includes their full voice directive, conversation history, format context,
+ * interaction dynamics, and INTERWORKINGS protocol awareness.
  */
 function buildSystemPrompt(
     speakerId: string,
@@ -37,24 +37,41 @@ function buildSystemPrompt(
         return `You are ${speakerId}. Speak naturally and concisely.`;
     }
 
+    const formatConfig = getFormat(format);
+
     let prompt = `${voice.systemDirective}\n\n`;
-    prompt += `FORMAT: ${format} conversation\n`;
+    prompt += `═══ CONVERSATION CONTEXT ═══\n`;
+    prompt += `FORMAT: ${format} — ${formatConfig.purpose}\n`;
     prompt += `TOPIC: ${topic}\n`;
-    prompt += `YOUR QUIRK: ${voice.quirk}\n`;
+    prompt += `YOUR SYMBOL: ${voice.symbol}\n`;
+    prompt += `YOUR SIGNATURE MOVE: ${voice.quirk}\n`;
 
     if (interactionType) {
         const toneGuides: Record<string, string> = {
-            supportive: 'Be encouraging and build on what was said',
-            agreement: 'Show alignment while adding your perspective',
-            neutral: 'Respond naturally without strong bias',
-            critical: 'Push back constructively — ask tough questions',
-            challenge: 'Directly challenge the last point made — be bold',
+            supportive:
+                'Build on what was said — add your angle without undermining',
+            agreement:
+                'Align, but push further. Agreement without addition is dead air.',
+            neutral: 'Respond honestly. No obligation to agree or disagree.',
+            critical:
+                'Push back. Name what is weak, what is missing, what is assumed.',
+            challenge:
+                'Directly contest the last point. Be specific about why.',
+            adversarial:
+                'Stress-test this. Find the failure mode. Break the argument if you can.',
         };
-        prompt += `INTERACTION STYLE: ${interactionType} — ${toneGuides[interactionType] ?? 'respond naturally'}\n`;
+        prompt += `INTERACTION DYNAMIC: ${interactionType} — ${toneGuides[interactionType] ?? 'respond naturally'}\n`;
     }
 
+    // INTERWORKINGS protocol awareness
+    prompt += `\n═══ OFFICE DYNAMICS ═══\n`;
+    prompt += `- If Subrosa says "VETO:" — the matter is closed. Acknowledge and move on.\n`;
+    prompt += `- If you have nothing to add, silence is a valid response. Say "..." or stay brief.\n`;
+    prompt += `- Watch for your own failure mode: ${voice.failureMode}\n`;
+    prompt += `- Primus is the office manager. He sets direction and makes final calls.\n`;
+
     if (voiceModifiers && voiceModifiers.length > 0) {
-        prompt += '\nPersonality evolution:\n';
+        prompt += '\nPERSONALITY EVOLUTION (from accumulated experience):\n';
         prompt += voiceModifiers.map(m => `- ${m}`).join('\n');
         prompt += '\n';
     }
@@ -62,42 +79,62 @@ function buildSystemPrompt(
     prompt += '\n';
 
     if (history.length > 0) {
-        prompt += `CONVERSATION SO FAR:\n`;
+        prompt += `═══ CONVERSATION SO FAR ═══\n`;
         for (const turn of history) {
             const turnVoice = getVoice(turn.speaker);
-            const name = turnVoice?.displayName ?? turn.speaker;
+            const name =
+                turnVoice ?
+                    `${turnVoice.symbol} ${turnVoice.displayName}`
+                :   turn.speaker;
             prompt += `${name}: ${turn.dialogue}\n`;
         }
     }
 
-    prompt += `\nRULES:\n`;
+    prompt += `\n═══ RULES ═══\n`;
     prompt += `- Keep your response under 120 characters\n`;
-    prompt += `- Speak naturally as ${voice.displayName} — no stage directions, no asterisks\n`;
-    prompt += `- Stay in character with your tone (${voice.tone})\n`;
-    prompt += `- Respond to what was just said, don't monologue\n`;
-    prompt += `- Do NOT prefix your response with your name\n`;
+    prompt += `- Speak as ${voice.displayName} (${voice.pronouns}) — no stage directions, no asterisks, no quotes\n`;
+    prompt += `- Stay in character: ${voice.tone}\n`;
+    prompt += `- Respond to what was just said. Don't monologue. Don't repeat yourself.\n`;
+    prompt += `- Do NOT prefix your response with your name or symbol\n`;
+    prompt += `- If you're ${voice.displayName} and this format doesn't need you, keep it brief or pass\n`;
 
     return prompt;
 }
 
 /**
  * Build the user prompt for a specific turn.
+ * Format-aware: the instruction changes based on the conversation type.
  */
 function buildUserPrompt(
     topic: string,
     turn: number,
     maxTurns: number,
     speakerName: string,
+    format: ConversationFormat,
 ): string {
     if (turn === 0) {
-        return `You're opening this conversation about: "${topic}". Set the tone. Keep it under 120 characters.`;
+        const openers: Partial<Record<ConversationFormat, string>> = {
+            standup: `Open the standup. Set the frame for: "${topic}". Brief and structured.`,
+            checkin: `Quick check-in. Ask the room: "${topic}". Keep it light.`,
+            deep_dive: `Open a deep analysis of: "${topic}". Set up the structural question.`,
+            risk_review: `Begin threat assessment on: "${topic}". Name what's at stake.`,
+            brainstorm: `Kick off brainstorming on: "${topic}". Go wide, not deep.`,
+            debate: `Open the debate on: "${topic}". Take a clear position.`,
+            cross_exam: `Begin interrogation of: "${topic}". Find the weak point.`,
+            reframe: `The current frame on "${topic}" isn't working. Break it open.`,
+            watercooler: `Start a casual chat about: "${topic}". No agenda.`,
+        };
+        const opener =
+            openers[format] ??
+            `You're opening this conversation about: "${topic}". Set the tone.`;
+        return `${opener} Under 120 characters.`;
     }
 
     if (turn === maxTurns - 1) {
-        return `This is the final turn. Wrap up your thoughts on "${topic}" concisely. Under 120 characters.`;
+        return `Final turn. Land your point on "${topic}". No loose threads. Under 120 characters.`;
     }
 
-    return `Respond naturally as ${speakerName}. Stay on topic: "${topic}". Under 120 characters.`;
+    return `Respond as ${speakerName}. Stay on: "${topic}". Under 120 characters.`;
 }
 
 /**
@@ -168,6 +205,7 @@ export async function orchestrateConversation(
                         lastSpeaker: history[history.length - 1].speaker,
                         history,
                         affinityMap,
+                        format: session.format,
                     });
 
             const voice = getVoice(speaker);
@@ -199,6 +237,7 @@ export async function orchestrateConversation(
                 turn,
                 maxTurns,
                 speakerName,
+                session.format,
             );
 
             const rawDialogue = await llmGenerate({
@@ -422,29 +461,113 @@ export async function checkScheduleAndEnqueue(): Promise<{
 
 /**
  * Generate a conversation topic based on the schedule slot.
+ * Each format has its own pool of provocative, personality-driven topics.
  */
 function generateTopic(slot: { name: string; format: string }): string {
     const topicPools: Record<string, string[]> = {
         standup: [
-            'What are our priorities today?',
-            'Any blockers or risks we should address?',
-            'What did we accomplish since last standup?',
-            'Where should we focus our energy?',
-            'System health and next steps',
+            'Status check: what moved, what is stuck, what needs attention?',
+            'Blockers and dependencies — who is waiting on whom?',
+            'Where should our energy go today?',
+            'System health: anything decaying quietly?',
+            'What did we learn since yesterday that changes our priorities?',
+        ],
+        checkin: [
+            'Quick pulse — how is everyone feeling about the work?',
+            'Anything urgent that needs collective attention right now?',
+            'Energy levels and capacity — who is stretched, who has space?',
+        ],
+        triage: [
+            'New signals came in — classify and prioritize.',
+            'We have more tasks than capacity. What gets cut?',
+            'Something broke overnight. Assess severity and assign.',
+            'Three requests from external. Which ones align with mission?',
+        ],
+        deep_dive: [
+            'What structural problem keeps recurring and why?',
+            'Trace the incentive structures behind our recent decisions.',
+            'One of our core assumptions may be wrong. Which one?',
+            'What system is producing outcomes nobody intended?',
+            'Map the dependency chain for our most fragile process.',
+        ],
+        risk_review: [
+            'What are we exposing that we should not be?',
+            'If an adversary studied our output, what would they learn?',
+            'Which of our current positions becomes dangerous if the context shifts?',
+            'Threat model review: what changed since last assessment?',
+            'What looks safe but is actually fragile?',
+        ],
+        strategy: [
+            'Are we still building what we said we would build?',
+            'What would we stop doing if we were honest about our resources?',
+            'Where are we drifting from original intent and is that good?',
+            'What decision are we avoiding that would clarify everything?',
+            'Six months from now, what will we wish we had started today?',
+        ],
+        planning: [
+            "Turn yesterday's strategy discussion into concrete tasks.",
+            'Who owns what this week? Name it. Deadline it.',
+            'We committed to three things. Break each into actionable steps.',
+            'What needs to ship before anything else can move?',
+        ],
+        shipping: [
+            'Is this actually ready or are we just tired of working on it?',
+            'Pre-ship checklist: what can go wrong at launch?',
+            'Who needs to review this before it goes live?',
+            'What is the rollback plan if this fails?',
+        ],
+        retro: [
+            'What worked better than expected and why?',
+            'What failed and what do we change — not just acknowledge?',
+            'Where did our process help us and where did it slow us down?',
+            'What would we do differently if we started this again tomorrow?',
+            'Which of our own assumptions bit us this cycle?',
         ],
         debate: [
-            'Should we prioritize quality or speed?',
-            'Is our current approach sustainable?',
-            'What are we missing in our analysis?',
-            'Should we change our content strategy?',
-            'How can we improve our signal-to-noise ratio?',
+            'Quality versus speed — where is the actual tradeoff right now?',
+            'Is our content strategy serving the mission or just generating activity?',
+            'Should we optimize for reach or depth?',
+            'Are we building infrastructure or performing productivity?',
+            'Is the current approach sustainable or are we borrowing from the future?',
+        ],
+        cross_exam: [
+            'Stress-test our latest proposal. Find the failure mode.',
+            'Play adversary: why would someone argue against what we just decided?',
+            'What are we not seeing because we agree too quickly?',
+            'Interrogate the assumption behind our most confident position.',
+        ],
+        brainstorm: [
+            'Wild ideas only: what would we do with unlimited resources?',
+            'What if we approached this from the completely opposite direction?',
+            'Name something we dismissed too quickly. Resurrect it.',
+            'What adjacent domain could teach us something about our problem?',
+            'Weird combinations: pick two unrelated ideas and smash them together.',
+        ],
+        reframe: [
+            'We are stuck. The current frame is not producing insight. Break it.',
+            'What if the problem is not what we think it is?',
+            'Reframe: who is the actual audience for this work?',
+            'What if we removed the constraint we think is fixed?',
+        ],
+        writing_room: [
+            'Draft session: work on the next piece collaboratively.',
+            'This draft needs a stronger opening. Workshop it.',
+            'Tone check: does this sound like us or like everyone else?',
+            'Cut 40% from this draft without losing the argument.',
+        ],
+        content_review: [
+            'Review recent output: does it meet our quality bar?',
+            'Risk scan on published content — anything we should retract or edit?',
+            'Alignment check: is our content reflecting our stated values?',
+            'What are we saying that we should not be saying publicly?',
         ],
         watercooler: [
-            'What interesting patterns have you noticed lately?',
-            'Any wild ideas worth exploring?',
-            'What surprised you recently?',
-            'If we could do one thing differently, what would it be?',
-            'Random thought of the day',
+            'What is the most interesting thing you encountered this week?',
+            'Random thought — no agenda, just vibes.',
+            'Something that surprised you about how we work.',
+            'If you could redesign one thing about our operation, what would it be?',
+            'Hot take: something everyone assumes but nobody questions.',
+            'What is the most underappreciated thing someone here does?',
         ],
     };
 

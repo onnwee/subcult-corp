@@ -1,7 +1,8 @@
 // Speaker selection — weighted randomness for natural conversation flow
-// Factors: affinity with last speaker, recency penalty, random jitter
+// Factors: affinity with last speaker, recency penalty, format coordinator, random jitter
 import type { ConversationFormat, ConversationTurnEntry } from '../types';
 import { getAffinityFromMap } from '../ops/relationships';
+import { getFormat } from './formats';
 
 /**
  * Calculate recency penalty — agents who've spoken more get penalized.
@@ -19,16 +20,22 @@ function recencyPenalty(
 
 /**
  * Select the first speaker based on format.
- * Standup: coordinator (opus) always opens.
- * Debate/watercooler: random participant.
+ * The format's coordinatorRole opens the conversation if they're a participant.
+ * Otherwise, a random participant opens.
  */
 export function selectFirstSpeaker(
     participants: string[],
     format: ConversationFormat,
 ): string {
-    if (format === 'standup' && participants.includes('opus')) {
-        return 'opus';
+    const formatConfig = getFormat(format);
+    const coordinator = formatConfig.coordinatorRole;
+
+    // Coordinator opens if they're in the room
+    if (participants.includes(coordinator)) {
+        return coordinator;
     }
+
+    // Otherwise random
     return participants[Math.floor(Math.random() * participants.length)];
 }
 
@@ -42,8 +49,9 @@ export function selectNextSpeaker(context: {
     lastSpeaker: string;
     history: ConversationTurnEntry[];
     affinityMap?: Map<string, number>;
+    format?: ConversationFormat;
 }): string {
-    const { participants, lastSpeaker, history, affinityMap } = context;
+    const { participants, lastSpeaker, history, affinityMap, format } = context;
 
     // Count how many times each agent has spoken
     const speakCounts: Record<string, number> = {};

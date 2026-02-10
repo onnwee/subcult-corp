@@ -1,10 +1,10 @@
 # SUBCULT OPS — VPS Worker Deployment
 
-# Copy these .service files to /etc/systemd/system/ on your VPS.
+# Copy these .service files to /etc/systemd/system/ on your VPS
 
 #
 
-# Usage:
+# Usage
 
 # sudo cp deploy/systemd/\*.service /etc/systemd/system/
 
@@ -16,7 +16,7 @@
 
 #
 
-# Manage:
+# Manage
 
 # sudo systemctl status subcult-roundtable
 
@@ -28,7 +28,7 @@
 
 # 1. Clone repo to VPS: /opt/subcult-corp/
 
-# 2. Install Node.js 20+: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install -y nodejs
+# 2. Install Node.js 20+: curl -fsSL <https://deb.nodesource.com/setup_20.x> | sudo -E bash - && sudo apt install -y nodejs
 
 # 3. Install deps: cd /opt/subcult-corp && npm install
 

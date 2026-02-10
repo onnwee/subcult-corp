@@ -1,5 +1,5 @@
 // Agent configuration — OpenClaw personality framework
-// 5 agents: Chora (analyst), Subrosa (protector), Thaum (innovator), Praxis (executor), Mux (dispatcher)
+// 6 agents: Chora (analyst), Subrosa (protector), Thaum (innovator), Praxis (executor), Mux (operations), Primus (sovereign)
 import type { AgentConfig, AgentId } from './types';
 
 export const AGENTS: Record<AgentId, AgentConfig> = {
@@ -58,15 +58,28 @@ export const AGENTS: Record<AgentId, AgentConfig> = {
     mux: {
         id: 'mux',
         displayName: 'Mux',
-        role: 'Dispatcher',
+        role: 'Operations',
         description:
-            'Pure dispatcher with no personality. Classifies tasks and routes to appropriate agent. Transparent, fast, deterministic.',
+            'Operational labor. Turns commitment into output — drafts, formats, transcribes, packages. Earnest, slightly tired, dry humor. The clipboard.',
         color: '#6b7280',
         avatarKey: 'mux_flux',
         pixelSpriteKey: 'mux_office',
         tailwindTextColor: 'text-slate-400',
         tailwindBgColor: 'bg-slate-400',
         tailwindBorderBg: 'border-slate-400/40 bg-slate-400/5',
+    },
+    primus: {
+        id: 'primus',
+        displayName: 'Primus',
+        role: 'Sovereign',
+        description:
+            'Sovereign directive intelligence. Cold, strategic, minimal. Speaks in mandates, not analysis. Invoked only for mission drift, contested values, existential tradeoffs.',
+        color: '#9333ea',
+        avatarKey: 'primus_crown',
+        pixelSpriteKey: 'primus_office',
+        tailwindTextColor: 'text-purple-500',
+        tailwindBgColor: 'bg-purple-500',
+        tailwindBorderBg: 'border-purple-500/40 bg-purple-500/5',
     },
 };
 

@@ -2,7 +2,13 @@
 
 // ─── Agent Types ───
 
-export type AgentId = 'chora' | 'subrosa' | 'thaum' | 'praxis' | 'mux';
+export type AgentId =
+    | 'chora'
+    | 'subrosa'
+    | 'thaum'
+    | 'praxis'
+    | 'mux'
+    | 'primus';
 
 export interface AgentConfig {
     id: AgentId;
@@ -227,22 +233,46 @@ export interface ActionRun {
 
 // ─── Roundtable Types ───
 
-export type ConversationFormat = 'standup' | 'debate' | 'watercooler';
+export type ConversationFormat =
+    | 'standup'
+    | 'checkin'
+    | 'triage'
+    | 'deep_dive'
+    | 'risk_review'
+    | 'strategy'
+    | 'planning'
+    | 'shipping'
+    | 'retro'
+    | 'debate'
+    | 'cross_exam'
+    | 'brainstorm'
+    | 'reframe'
+    | 'writing_room'
+    | 'content_review'
+    | 'watercooler';
 export type SessionStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 export interface RoundtableVoice {
     displayName: string;
+    symbol: string;
+    pronouns: string;
     tone: string;
     quirk: string;
+    failureMode: string;
+    signaturePhrase: string;
     systemDirective: string;
 }
 
 export interface FormatConfig {
+    coordinatorRole: AgentId;
+    purpose: string;
     minAgents: number;
     maxAgents: number;
     minTurns: number;
     maxTurns: number;
     temperature: number;
+    requires?: AgentId[];
+    optional?: AgentId[];
 }
 
 export interface ScheduleSlot {

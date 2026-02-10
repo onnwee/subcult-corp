@@ -1,7 +1,7 @@
 // Seed agent relationships into ops_agent_relationships
 // Run: node scripts/go-live/seed-relationships.mjs
 //
-// 5 OpenClaw agents = 10 pairwise relationships (Chora, Subrosa, Thaum, Praxis, Mux)
+// 6 agents = 15 pairwise relationships (Chora, Subrosa, Thaum, Praxis, Mux, Primus)
 // agent_a < agent_b (alphabetical) — enforced by CHECK constraint
 
 import postgres from 'postgres';
@@ -102,11 +102,58 @@ const relationships = [
         drift_log: [],
     },
 
-    // ─── Praxis (executor) / Mux (dispatcher) ───
+    // ─── Praxis (executor) / Mux (operations) ───
     {
         agent_a: 'mux',
         agent_b: 'praxis',
         affinity: 0.8,
+        total_interactions: 0,
+        positive_interactions: 0,
+        negative_interactions: 0,
+        drift_log: [],
+    },
+
+    // ─── Primus (sovereign) relationships ───
+    {
+        agent_a: 'chora',
+        agent_b: 'primus',
+        affinity: 0.6,
+        total_interactions: 0,
+        positive_interactions: 0,
+        negative_interactions: 0,
+        drift_log: [],
+    },
+    {
+        agent_a: 'mux',
+        agent_b: 'primus',
+        affinity: 0.5,
+        total_interactions: 0,
+        positive_interactions: 0,
+        negative_interactions: 0,
+        drift_log: [],
+    },
+    {
+        agent_a: 'praxis',
+        agent_b: 'primus',
+        affinity: 0.65,
+        total_interactions: 0,
+        positive_interactions: 0,
+        negative_interactions: 0,
+        drift_log: [],
+    },
+    {
+        agent_a: 'primus',
+        agent_b: 'subrosa',
+        affinity: 0.55,
+        total_interactions: 0,
+        positive_interactions: 0,
+        negative_interactions: 0,
+        drift_log: [],
+    },
+    {
+        agent_a: 'primus',
+        agent_b: 'thaum',
+        affinity: 0.45,
         total_interactions: 0,
         positive_interactions: 0,
         negative_interactions: 0,
@@ -121,7 +168,12 @@ const relationships = [
 // Thaum ↔ Praxis:    0.75 — disruption → owned action
 // Thaum ↔ Subrosa:   0.60 — tension: innovation vs. safety
 // Chora ↔ Thaum:     0.70 — analysis can become stagnant
-// Mux:               0.65–0.80 — dispatcher coordinates all, neutral stance
+// Mux:               0.65–0.80 — operations coordinates all, neutral stance
+// Primus ↔ Chora:    0.60 — sovereign needs legibility but rarely engages
+// Primus ↔ Praxis:   0.65 — sovereign's mandates become Praxis's commitments
+// Primus ↔ Subrosa:  0.55 — tension: sovereign authority vs. risk veto
+// Primus ↔ Mux:      0.50 — sovereign has little direct interaction with operations
+// Primus ↔ Thaum:    0.45 — coldest: sovereign finds disruption uncalibrated
 
 async function seed() {
     console.log('Seeding agent relationships...\n');
