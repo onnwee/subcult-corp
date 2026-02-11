@@ -5,7 +5,10 @@
 
 import postgres from 'postgres';
 import dotenv from 'dotenv';
+import { createLogger } from '../lib/logger.mjs';
+
 dotenv.config({ path: ['.env.local', '.env'] });
+const log = createLogger({ service: 'verify-launch' });
 
 // ─── Setup ───
 
@@ -24,7 +27,8 @@ function pass(msg) {
 }
 
 function fail(msg) {
-    console.error(`  ✗ ${msg}`);
+    log.error(msg);
+    console.log(`  ✗ ${msg}`);
     failed++;
 }
 
@@ -245,7 +249,9 @@ async function checkRecentActivity(sql) {
         if (count > 0) {
             pass(`${count} memories stored`);
         } else {
-            warn('No memories yet — need at least one conversation to generate');
+            warn(
+                'No memories yet — need at least one conversation to generate',
+            );
         }
     } catch {
         warn('Could not check memories');
@@ -300,7 +306,8 @@ async function main() {
     await checkEnvVars();
 
     if (!DATABASE_URL) {
-        console.error('\n✗ Cannot proceed without DATABASE_URL.');
+        log.fatal('Cannot proceed without DATABASE_URL');
+        console.log('\n✗ Cannot proceed without DATABASE_URL.');
         process.exit(1);
     }
 
@@ -336,8 +343,12 @@ async function main() {
     console.log('\n── Launch Order ──');
     console.log('  1. Build Next.js: npm run build');
     console.log('  2. Start Next.js: npm run start (or via systemd)');
-    console.log('  3. Set up crontab: */5 * * * * curl -s http://localhost:3000/api/ops/heartbeat');
-    console.log('  4. Start workers: sudo systemctl enable --now subcult-roundtable subcult-initiative');
+    console.log(
+        '  3. Set up crontab: */5 * * * * curl -s http://localhost:3000/api/ops/heartbeat',
+    );
+    console.log(
+        '  4. Start workers: sudo systemctl enable --now subcult-roundtable subcult-initiative',
+    );
     console.log('  5. Verify heartbeat: check ops_action_runs for new rows');
     console.log('  6. Enable roundtable: set roundtable_policy.enabled = true');
     console.log('  7. Enable proactive triggers one by one');
@@ -345,6 +356,6 @@ async function main() {
 }
 
 main().catch(err => {
-    console.error('Verification failed:', err);
+    log.fatal('Verification failed', { error: err });
     process.exit(1);
 });

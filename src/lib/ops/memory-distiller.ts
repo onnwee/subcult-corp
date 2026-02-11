@@ -11,6 +11,9 @@ import type {
     PairwiseDrift,
     ActionItem,
 } from '../types';
+import { logger } from '@/lib/logger';
+
+const log = logger.child({ module: 'distiller' });
 
 const MAX_MEMORIES_PER_CONVERSATION = 6;
 const MIN_CONFIDENCE = 0.55;
@@ -93,15 +96,12 @@ Rules:
         // Extract JSON from response
         const jsonMatch = response.match(/\{[\s\S]*\}/);
         if (!jsonMatch) {
-            console.warn('[distiller] No JSON found in LLM response');
+            log.warn('No JSON found in LLM response', { sessionId });
             return 0;
         }
         parsed = JSON.parse(jsonMatch[0]);
     } catch (err) {
-        console.error(
-            '[distiller] LLM extraction failed:',
-            (err as Error).message,
-        );
+        log.error('LLM extraction failed', { error: err, sessionId });
         return 0;
     }
 
@@ -170,9 +170,10 @@ Rules:
                     source_trace_id: `action:${sessionId}:${item.agent_id}`,
                 });
             } catch (err) {
-                console.warn(
-                    `[distiller] Failed to create proposal for action item: ${(err as Error).message}`,
-                );
+                log.warn('Failed to create proposal for action item', {
+                    error: err,
+                    agent_id: item.agent_id,
+                });
             }
         }
     }

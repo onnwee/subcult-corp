@@ -3,6 +3,9 @@ import { sql } from '@/lib/db';
 import type { TriggerRule, TriggerCheckResult } from '../types';
 import { createProposalAndMaybeAutoApprove } from './proposal-service';
 import { emitEvent } from './events';
+import { logger } from '@/lib/logger';
+
+const log = logger.child({ module: 'triggers' });
 
 export async function evaluateTriggers(
     timeoutMs: number = 4000,
@@ -60,10 +63,10 @@ export async function evaluateTriggers(
                 fired++;
             }
         } catch (err) {
-            console.error(
-                `[triggers] Error evaluating '${rule.name}':`,
-                (err as Error).message,
-            );
+            log.error(`Error evaluating '${rule.name}'`, {
+                error: err,
+                ruleId: rule.id,
+            });
         }
     }
 
@@ -88,11 +91,11 @@ async function checkTrigger(rule: TriggerRule): Promise<TriggerCheckResult> {
         case 'work_stalled':
             return checkWorkStalled(conditions, targetAgent);
         case 'proposal_ready':
-            return { fired: false };
+            return checkProposalReady(conditions, targetAgent);
         case 'mission_milestone_hit':
             return checkMilestoneHit(conditions, targetAgent);
         case 'daily_roundtable':
-            return { fired: false };
+            return checkDailyRoundtable(conditions, targetAgent);
         case 'memory_consolidation_due':
             return checkMemoryConsolidation(conditions, targetAgent);
         default:
@@ -277,7 +280,7 @@ async function checkMemoryConsolidation(
         WHERE created_at >= ${cutoff} AND superseded_by IS NULL
     `;
 
-    if (count >= 10) {
+    if (count >= 3) {
         return {
             fired: true,
             reason: `${count} memories to consolidate`,
@@ -285,6 +288,71 @@ async function checkMemoryConsolidation(
                 agent_id: targetAgent,
                 title: `Consolidate recent memories`,
                 proposed_steps: [{ kind: 'consolidate_memory' }],
+                source: 'trigger',
+            },
+        };
+    }
+    return { fired: false };
+}
+
+async function checkProposalReady(
+    conditions: Record<string, unknown>,
+    targetAgent: string,
+): Promise<TriggerCheckResult> {
+    const lookback = (conditions.lookback_minutes as number) ?? 30;
+    const cutoff = new Date(Date.now() - lookback * 60_000).toISOString();
+
+    const pending = await sql<{ id: string; title: string }[]>`
+        SELECT id, title FROM ops_mission_proposals
+        WHERE status = 'pending' AND created_at >= ${cutoff}
+        ORDER BY created_at ASC
+        LIMIT 5
+    `;
+
+    if (pending.length > 0) {
+        return {
+            fired: true,
+            reason: `${pending.length} pending proposal(s) awaiting review`,
+            proposal: {
+                agent_id: targetAgent,
+                title: `Review and action pending proposals`,
+                description: `${pending.length} proposal(s) waiting: ${pending.map(p => p.title).join(', ')}`,
+                proposed_steps: [{ kind: 'review_policy' }],
+                source: 'trigger',
+            },
+        };
+    }
+    return { fired: false };
+}
+
+async function checkDailyRoundtable(
+    conditions: Record<string, unknown>,
+    targetAgent: string,
+): Promise<TriggerCheckResult> {
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+
+    const [{ count }] = await sql<[{ count: number }]>`
+        SELECT COUNT(*)::int as count FROM ops_roundtable_sessions
+        WHERE created_at >= ${todayStart.toISOString()}
+        AND status IN ('completed', 'running', 'pending')
+    `;
+
+    if (count === 0) {
+        const participants = (conditions.participants as string[]) ?? [
+            'chora',
+            'subrosa',
+            'thaum',
+            'praxis',
+        ];
+        return {
+            fired: true,
+            reason: `No roundtable today — convening one`,
+            proposal: {
+                agent_id: targetAgent,
+                title: `Convene daily roundtable`,
+                description: `No roundtable has occurred today. Dispatch a session with: ${participants.join(', ')}`,
+                proposed_steps: [{ kind: 'log_event' }],
                 source: 'trigger',
             },
         };

@@ -5,11 +5,13 @@
 
 import postgres from 'postgres';
 import dotenv from 'dotenv';
+import { createLogger } from '../lib/logger.mjs';
 
 dotenv.config({ path: ['.env.local', '.env'] });
+const log = createLogger({ service: 'seed-agent-registry' });
 
 if (!process.env.DATABASE_URL) {
-    console.error('Missing DATABASE_URL');
+    log.fatal('Missing DATABASE_URL');
     process.exit(1);
 }
 const sql = postgres(process.env.DATABASE_URL);
@@ -227,7 +229,7 @@ Relationship to other agents: You are above the agent layer. You do not particip
 ];
 
 async function seed() {
-    console.log('Seeding ops_agent_registry...\n');
+    log.info('Seeding ops_agent_registry');
 
     for (const agent of agents) {
         try {
@@ -252,14 +254,18 @@ async function seed() {
                     avatar_key = EXCLUDED.avatar_key,
                     pixel_sprite_key = EXCLUDED.pixel_sprite_key
             `;
-            console.log(`  ✓ ${agent.display_name} (${agent.role})`);
+            log.info('Seeded agent', {
+                agent_id: agent.agent_id,
+                display_name: agent.display_name,
+                role: agent.role,
+            });
         } catch (err) {
-            console.error(`  ✗ ${agent.agent_id}: ${err.message}`);
+            log.error('Seed failed', { agent_id: agent.agent_id, error: err });
         }
     }
 
-    console.log('\nAgent registry seeded successfully.');
+    log.info('Agent registry seeded successfully');
     await sql.end();
 }
 
-seed().catch(console.error);
+seed().catch(err => log.fatal('Seed failed', { error: err }));

@@ -3,6 +3,9 @@ import { sql } from '@/lib/db';
 import type { EventInput, ReactionPattern } from '../types';
 import { getPolicy } from './policy';
 import { createProposalAndMaybeAutoApprove } from './proposal-service';
+import { logger } from '@/lib/logger';
+
+const log = logger.child({ module: 'reaction-matrix' });
 
 export async function checkReactionMatrix(
     eventId: string,
@@ -44,10 +47,7 @@ export async function checkReactionMatrix(
             `;
         }
     } catch (err) {
-        console.error(
-            '[reaction-matrix] Error checking reactions:',
-            (err as Error).message,
-        );
+        log.error('Error checking reactions', { error: err, eventId });
     }
 }
 
@@ -102,10 +102,10 @@ export async function processReactionQueue(
             processed++;
             if (result.success && result.proposalId) created++;
         } catch (err) {
-            console.error(
-                `[reaction-matrix] Failed to process reaction ${reaction.id}:`,
-                (err as Error).message,
-            );
+            log.error('Failed to process reaction', {
+                error: err,
+                reactionId: reaction.id,
+            });
             await sql`
                 UPDATE ops_agent_reactions
                 SET status = 'failed', updated_at = NOW()

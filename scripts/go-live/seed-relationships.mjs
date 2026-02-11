@@ -6,10 +6,13 @@
 
 import postgres from 'postgres';
 import dotenv from 'dotenv';
+import { createLogger } from '../lib/logger.mjs';
+
 dotenv.config({ path: ['.env.local', '.env'] });
+const log = createLogger({ service: 'seed-relationships' });
 
 if (!process.env.DATABASE_URL) {
-    console.error('Missing DATABASE_URL');
+    log.fatal('Missing DATABASE_URL');
     process.exit(1);
 }
 const sql = postgres(process.env.DATABASE_URL);
@@ -176,7 +179,7 @@ const relationships = [
 // Primus ↔ Thaum:    0.45 — coldest: sovereign finds disruption uncalibrated
 
 async function seed() {
-    console.log('Seeding agent relationships...\n');
+    log.info('Seeding agent relationships');
 
     for (const rel of relationships) {
         try {
@@ -188,7 +191,7 @@ async function seed() {
                 ) VALUES (
                     ${rel.agent_a}, ${rel.agent_b}, ${rel.affinity},
                     ${rel.total_interactions}, ${rel.positive_interactions}, ${rel.negative_interactions},
-                    ${JSON.stringify(rel.drift_log)}::jsonb
+                    ${sql.json(rel.drift_log)}
                 )
                 ON CONFLICT (agent_a, agent_b) DO UPDATE SET
                     affinity = EXCLUDED.affinity,
@@ -198,21 +201,26 @@ async function seed() {
                     drift_log = EXCLUDED.drift_log
                 RETURNING id
             `;
-            console.log(
-                `  ✓ ${rel.agent_a} ↔ ${rel.agent_b}: affinity ${rel.affinity} (${row.id})`,
-            );
+            log.info('Seeded relationship', {
+                agent_a: rel.agent_a,
+                agent_b: rel.agent_b,
+                affinity: rel.affinity,
+                id: row.id,
+            });
         } catch (err) {
-            console.error(
-                `  ✗ ${rel.agent_a} ↔ ${rel.agent_b}: ${err.message}`,
-            );
+            log.error('Seed failed', {
+                agent_a: rel.agent_a,
+                agent_b: rel.agent_b,
+                error: err,
+            });
         }
     }
 
-    console.log('\nDone! Seeded', relationships.length, 'relationships.');
+    log.info('Done', { count: relationships.length });
     await sql.end();
 }
 
 seed().catch(err => {
-    console.error('Seed failed:', err);
+    log.fatal('Seed failed', { error: err });
     process.exit(1);
 });

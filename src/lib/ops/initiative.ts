@@ -1,8 +1,11 @@
 // Initiative queueing and processing
-import { sql } from '@/lib/db';
+import { sql, jsonb } from '@/lib/db';
 import { AGENT_IDS } from '../agents';
 import { getPolicy } from './policy';
 import { queryAgentMemories } from './memory';
+import { logger } from '@/lib/logger';
+
+const log = logger.child({ module: 'initiative' });
 
 const INITIATIVE_COOLDOWN_MINUTES = 120;
 const MIN_MEMORIES_FOR_INITIATIVE = 5;
@@ -44,7 +47,7 @@ export async function maybeQueueInitiative(
 
     const [row] = await sql`
         INSERT INTO ops_initiative_queue (agent_id, status, context)
-        VALUES (${agentId}, 'pending', ${JSON.stringify(context)}::jsonb)
+        VALUES (${agentId}, 'pending', ${jsonb(context)})
         RETURNING id
     `;
 
@@ -66,10 +69,10 @@ export async function checkAndQueueInitiatives(): Promise<{
             const id = await maybeQueueInitiative(agentId);
             if (id) queued++;
         } catch (err) {
-            console.error(
-                `[initiative] Failed to queue for ${agentId}:`,
-                (err as Error).message,
-            );
+            log.error(`Failed to queue initiative for ${agentId}`, {
+                error: err,
+                agentId,
+            });
         }
     }
 
@@ -110,8 +113,7 @@ export async function completeInitiative(
         UPDATE ops_initiative_queue
         SET status = 'completed',
             processed_at = NOW(),
-            result = ${JSON.stringify(result)}::jsonb
-        WHERE id = ${id}
+            result = ${jsonb(result)}
     `;
 }
 
@@ -120,7 +122,7 @@ export async function failInitiative(id: string, error: string): Promise<void> {
         UPDATE ops_initiative_queue
         SET status = 'failed',
             processed_at = NOW(),
-            result = ${JSON.stringify({ error })}::jsonb
+            result = ${jsonb({ error })}
         WHERE id = ${id}
     `;
 }

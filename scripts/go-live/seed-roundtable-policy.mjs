@@ -6,10 +6,13 @@
 
 import postgres from 'postgres';
 import dotenv from 'dotenv';
+import { createLogger } from '../lib/logger.mjs';
+
 dotenv.config({ path: ['.env.local', '.env'] });
+const log = createLogger({ service: 'seed-roundtable-policy' });
 
 if (!process.env.DATABASE_URL) {
-    console.error('Missing DATABASE_URL');
+    log.fatal('Missing DATABASE_URL');
     process.exit(1);
 }
 const sql = postgres(process.env.DATABASE_URL);
@@ -66,34 +69,31 @@ const roundtablePolicies = [
 ];
 
 async function seed() {
-    console.log('Seeding roundtable policies...\n');
+    log.info('Seeding roundtable policies');
 
     for (const policy of roundtablePolicies) {
         try {
             await sql`
                 INSERT INTO ops_policy (key, value, description)
-                VALUES (${policy.key}, ${JSON.stringify(policy.value)}::jsonb, ${policy.description})
+                VALUES (${policy.key}, ${sql.json(policy.value)}, ${policy.description})
                 ON CONFLICT (key) DO UPDATE SET
                     value = EXCLUDED.value,
                     description = EXCLUDED.description
             `;
-            console.log(`  ✓ ${policy.key}`);
+            log.info('Seeded policy', { key: policy.key });
         } catch (err) {
-            console.error(`  ✗ ${policy.key}: ${err.message}`);
+            log.error('Seed failed', { key: policy.key, error: err });
         }
     }
 
-    console.log('\nDone. Roundtable policies seeded.');
-    console.log(
-        '\nNext steps:',
-        '\n  1. Verify heartbeat is running (check ops_action_runs)',
-        '\n  2. Run a few heartbeat cycles',
-        '\n  3. Set roundtable_policy.enabled = true when ready',
+    log.info('Done — roundtable policies seeded');
+    log.info(
+        'Next steps: verify heartbeat, run cycles, enable roundtable_policy',
     );
     await sql.end();
 }
 
 seed().catch(err => {
-    console.error('Seed failed:', err);
+    log.fatal('Seed failed', { error: err });
     process.exit(1);
 });

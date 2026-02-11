@@ -3,93 +3,112 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { enqueueConversation } from '@/lib/roundtable/orchestrator';
 import type { ConversationFormat } from '@/lib/types';
+import { logger } from '@/lib/logger';
+import { withRequestContext } from '@/middleware';
+
+const log = logger.child({ route: 'roundtable' });
 
 export const dynamic = 'force-dynamic';
 
 const VALID_FORMATS: ConversationFormat[] = [
     'standup',
+    'checkin',
+    'triage',
+    'deep_dive',
+    'risk_review',
+    'strategy',
+    'planning',
+    'shipping',
+    'retro',
     'debate',
+    'cross_exam',
+    'brainstorm',
+    'reframe',
+    'writing_room',
+    'content_review',
     'watercooler',
 ];
 
 // POST — manually trigger a conversation
 export async function POST(req: NextRequest) {
-    const authHeader = req.headers.get('authorization');
-    const cronSecret = process.env.CRON_SECRET;
+    return withRequestContext(req, async () => {
+        const authHeader = req.headers.get('authorization');
+        const cronSecret = process.env.CRON_SECRET;
 
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+        if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+            return NextResponse.json(
+                { error: 'Unauthorized' },
+                { status: 401 },
+            );
+        }
 
-    try {
-        const body = await req.json();
+        try {
+            const body = await req.json();
 
-        const format = (body.format ?? 'standup') as ConversationFormat;
-        if (!VALID_FORMATS.includes(format)) {
+            const format = (body.format ?? 'standup') as ConversationFormat;
+            if (!VALID_FORMATS.includes(format)) {
+                return NextResponse.json(
+                    {
+                        error: `Invalid format. Must be one of: ${VALID_FORMATS.join(', ')}`,
+                    },
+                    { status: 400 },
+                );
+            }
+
+            if (
+                !body.topic ||
+                typeof body.topic !== 'string' ||
+                body.topic.trim().length === 0
+            ) {
+                return NextResponse.json(
+                    { error: 'Missing required field: topic' },
+                    { status: 400 },
+                );
+            }
+
+            if (
+                !body.participants ||
+                !Array.isArray(body.participants) ||
+                body.participants.length < 2
+            ) {
+                return NextResponse.json(
+                    {
+                        error: 'participants must be an array of at least 2 agent IDs',
+                    },
+                    { status: 400 },
+                );
+            }
+
+            const model =
+                typeof body.model === 'string' ? body.model.trim() : undefined;
+
+            const sessionId = await enqueueConversation({
+                format,
+                topic: body.topic.trim(),
+                participants: body.participants,
+                model: model || undefined,
+            });
+
             return NextResponse.json(
                 {
-                    error: `Invalid format. Must be one of: ${VALID_FORMATS.join(', ')}`,
+                    success: true,
+                    sessionId,
+                    message: `Conversation enqueued. The worker will pick it up and orchestrate it.`,
                 },
-                { status: 400 },
+                { status: 201 },
             );
-        }
-
-        if (
-            !body.topic ||
-            typeof body.topic !== 'string' ||
-            body.topic.trim().length === 0
-        ) {
+        } catch (err) {
+            log.error('POST error', { error: err });
             return NextResponse.json(
-                { error: 'Missing required field: topic' },
-                { status: 400 },
+                { error: 'Internal server error' },
+                { status: 500 },
             );
         }
-
-        if (
-            !body.participants ||
-            !Array.isArray(body.participants) ||
-            body.participants.length < 2
-        ) {
-            return NextResponse.json(
-                {
-                    error: 'participants must be an array of at least 2 agent IDs',
-                },
-                { status: 400 },
-            );
-        }
-
-        const sessionId = await enqueueConversation({
-            format,
-            topic: body.topic.trim(),
-            participants: body.participants,
-        });
-
-        return NextResponse.json(
-            {
-                success: true,
-                sessionId,
-                message: `Conversation enqueued. The worker will pick it up and orchestrate it.`,
-            },
-            { status: 201 },
-        );
-    } catch (err) {
-        console.error('[roundtable] POST error:', err);
-        return NextResponse.json(
-            { error: 'Internal server error' },
-            { status: 500 },
-        );
-    }
+    }); // withRequestContext
 }
 
-// GET — list conversation sessions with optional filters
+// GET — list conversation sessions (public for dashboard)
 export async function GET(req: NextRequest) {
-    const authHeader = req.headers.get('authorization');
-    const cronSecret = process.env.CRON_SECRET;
-
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
     const format = searchParams.get('format');

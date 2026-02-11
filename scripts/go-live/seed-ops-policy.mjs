@@ -3,10 +3,13 @@
 
 import postgres from 'postgres';
 import dotenv from 'dotenv';
+import { createLogger } from '../lib/logger.mjs';
+
 dotenv.config({ path: ['.env.local', '.env'] });
+const log = createLogger({ service: 'seed-ops-policy' });
 
 if (!process.env.DATABASE_URL) {
-    console.error('Missing DATABASE_URL');
+    log.fatal('Missing DATABASE_URL');
     process.exit(1);
 }
 const sql = postgres(process.env.DATABASE_URL);
@@ -192,25 +195,25 @@ const policies = [
 ];
 
 async function seed() {
-    console.log('Seeding ops_policy...');
+    log.info('Seeding ops_policy');
 
     for (const policy of policies) {
         try {
             await sql`
                 INSERT INTO ops_policy (key, value, description)
-                VALUES (${policy.key}, ${JSON.stringify(policy.value)}::jsonb, ${policy.description})
+                VALUES (${policy.key}, ${sql.json(policy.value)}, ${policy.description})
                 ON CONFLICT (key) DO UPDATE SET
                     value = EXCLUDED.value,
                     description = EXCLUDED.description
             `;
-            console.log(`  \u2713 ${policy.key}`);
+            log.info('Seeded policy', { key: policy.key });
         } catch (err) {
-            console.error(`  \u2717 ${policy.key}: ${err.message}`);
+            log.error('Seed failed', { key: policy.key, error: err });
         }
     }
 
-    console.log('Done.');
+    log.info('Done');
     await sql.end();
 }
 
-seed().catch(console.error);
+seed().catch(err => log.fatal('Seed failed', { error: err }));
