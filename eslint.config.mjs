@@ -15,8 +15,11 @@ const eslintConfig = defineConfig([
   ]),
   // ── Structured Logging Enforcement ────────────────────────────────
   // Ban console.* methods to enforce structured logging via @/lib/logger
-  // or scripts/lib/logger.mjs. Use logger.info(), logger.error(), etc.
-  // instead of console.log(), console.error(), etc.
+  // (in src/) or scripts/lib/logger.mjs (in scripts/). In src/, use
+  // logger.info(), logger.error(), etc. instead of console.log(),
+  // console.error(), etc. In scripts/, use createLogger(...) to get a
+  // log instance (e.g. const log = createLogger(...)) and then use
+  // log.info(), log.error(), etc. instead of console.log(), console.error().
   {
     files: ["src/**/*.{ts,tsx,js,jsx,mjs}"],
     rules: {
