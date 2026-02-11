@@ -73,14 +73,14 @@ function Timeline({
                         <div
                             className={`h-3 w-3 rounded-full border-2 transition-all ${
                                 isActive ?
-                                    'border-cyan-400 bg-cyan-400 scale-125'
+                                    'border-accent bg-accent scale-125'
                                 : isPast ? 'border-zinc-500 bg-zinc-500'
                                 : 'border-zinc-700 bg-transparent group-hover:border-zinc-500'
                             }`}
                         />
                         {/* Step number */}
                         <span
-                            className={`text-[9px] ${isActive ? 'text-cyan-400 font-bold' : agentColor}`}
+                            className={`text-[9px] ${isActive ? 'text-accent font-bold' : agentColor}`}
                         >
                             {i + 1}
                         </span>
@@ -172,7 +172,7 @@ export function MissionPlayback({
                 </p>
                 <button
                     onClick={onClose}
-                    className='mt-3 text-xs text-cyan-400 hover:text-cyan-300'
+                    className='mt-3 text-xs text-accent hover:text-accent/80'
                 >
                     Close
                 </button>
@@ -242,7 +242,7 @@ export function MissionPlayback({
                 {/* Progress bar */}
                 <div className='flex-1 h-1 rounded-full bg-zinc-800 overflow-hidden'>
                     <div
-                        className='h-full bg-cyan-400/60 transition-all duration-300'
+                        className='h-full bg-accent/60 transition-all duration-300'
                         style={{
                             width: `${((step + 1) / events.length) * 100}%`,
                         }}

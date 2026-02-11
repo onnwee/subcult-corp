@@ -1,6 +1,9 @@
 // Event emitter — write to ops_agent_events
-import { sql } from '@/lib/db';
+import { sql, jsonb } from '@/lib/db';
 import type { EventInput } from '../types';
+import { logger } from '@/lib/logger';
+
+const log = logger.child({ module: 'events' });
 
 export async function emitEvent(input: EventInput): Promise<string> {
     try {
@@ -13,13 +16,17 @@ export async function emitEvent(input: EventInput): Promise<string> {
                 ${input.title},
                 ${input.summary ?? null},
                 ${input.tags ?? []},
-                ${JSON.stringify(meta)}::jsonb
+                ${jsonb(meta)}
             )
             RETURNING id`;
 
         return row.id;
     } catch (err) {
-        console.error('[event] Failed to emit event:', (err as Error).message);
+        log.error('Failed to emit event', {
+            error: err,
+            kind: input.kind,
+            agent_id: input.agent_id,
+        });
         throw new Error(`Failed to emit event: ${(err as Error).message}`);
     }
 }

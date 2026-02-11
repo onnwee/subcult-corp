@@ -1,5 +1,5 @@
 // Proposal service — create, approve, and manage proposals
-import { sql } from '@/lib/db';
+import { sql, jsonb } from '@/lib/db';
 import type { ProposalInput, Proposal } from '../types';
 import { getPolicy } from './policy';
 import { checkCapGates } from './cap-gates';
@@ -36,7 +36,7 @@ export async function createProposalAndMaybeAutoApprove(
             ${input.agent_id},
             ${input.title},
             ${input.description ?? null},
-            ${JSON.stringify(input.proposed_steps)}::jsonb,
+            ${jsonb(input.proposed_steps)},
             ${input.source ?? 'agent'},
             ${input.source_trace_id ?? null},
             'pending'
@@ -112,11 +112,7 @@ export async function createMissionFromProposal(
 
     const missionId = mission.id;
 
-    // Parse proposed_steps (might be string from DB)
-    const steps =
-        typeof proposal.proposed_steps === 'string' ?
-            JSON.parse(proposal.proposed_steps as unknown as string)
-        :   proposal.proposed_steps;
+    const steps = proposal.proposed_steps;
 
     for (const step of steps) {
         await sql`
@@ -125,7 +121,7 @@ export async function createMissionFromProposal(
                 ${missionId},
                 ${step.kind},
                 'queued',
-                ${JSON.stringify(step.payload ?? {})}::jsonb
+                ${jsonb(step.payload ?? {})}
             )
         `;
     }

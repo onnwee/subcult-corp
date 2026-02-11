@@ -1,10 +1,11 @@
 // Roundtable Orchestrator — turn-by-turn conversation generation
 // The VPS worker calls this to run a conversation session
-import { sql } from '@/lib/db';
+import { sql, jsonb } from '@/lib/db';
 import type {
     ConversationFormat,
     ConversationTurnEntry,
     RoundtableSession,
+    ToolDefinition,
 } from '../types';
 import { getVoice } from './voices';
 import { getFormat, pickTurnCount } from './formats';
@@ -18,6 +19,10 @@ import {
     getInteractionType,
 } from '../ops/relationships';
 import { deriveVoiceModifiers } from '../ops/voice-evolution';
+import { getAgentTools } from '../skills';
+import { logger } from '@/lib/logger';
+
+const log = logger.child({ module: 'orchestrator' });
 
 /**
  * Build the system prompt for a speaker in a conversation.
@@ -31,6 +36,7 @@ function buildSystemPrompt(
     topic: string,
     interactionType?: string,
     voiceModifiers?: string[],
+    availableTools?: ToolDefinition[],
 ): string {
     const voice = getVoice(speakerId);
     if (!voice) {
@@ -88,6 +94,15 @@ function buildSystemPrompt(
                 :   turn.speaker;
             prompt += `${name}: ${turn.dialogue}\n`;
         }
+    }
+
+    if (availableTools && availableTools.length > 0) {
+        prompt += `\n═══ AVAILABLE TOOLS ═══\n`;
+        prompt += `You have access to the following tools via OpenClaw. Use them when the conversation would benefit from real data, research, or action.\n`;
+        prompt += `Tools: ${availableTools.map(t => t.name).join(', ')}\n`;
+        prompt += `- Only invoke a tool if it directly serves the current discussion\n`;
+        prompt += `- Your dialogue response should incorporate or react to tool results naturally\n`;
+        prompt += `- Do NOT mention tool names in your dialogue — speak as yourself, using the information\n`;
     }
 
     prompt += `\n═══ RULES ═══\n`;
@@ -157,6 +172,19 @@ export async function orchestrateConversation(
     // Load affinity map once for the entire conversation
     const affinityMap = await loadAffinityMap();
 
+    // Pre-load tools for each participant (cached per conversation)
+    const agentToolsMap = new Map<string, ToolDefinition[]>();
+    for (const participant of session.participants) {
+        try {
+            const tools = getAgentTools(
+                participant as Parameters<typeof getAgentTools>[0],
+            );
+            agentToolsMap.set(participant, tools);
+        } catch {
+            agentToolsMap.set(participant, []);
+        }
+    }
+
     // Derive voice modifiers once per participant (cached per conversation)
     const voiceModifiersMap = new Map<string, string[]>();
     for (const participant of session.participants) {
@@ -164,10 +192,10 @@ export async function orchestrateConversation(
             const mods = await deriveVoiceModifiers(participant);
             voiceModifiersMap.set(participant, mods);
         } catch (err) {
-            console.error(
-                `[orchestrator] Voice modifier derivation failed for ${participant}:`,
-                (err as Error).message,
-            );
+            log.error('Voice modifier derivation failed', {
+                error: err,
+                participant,
+            });
             voiceModifiersMap.set(participant, []);
         }
     }
@@ -194,127 +222,167 @@ export async function orchestrateConversation(
         },
     });
 
-    try {
-        for (let turn = 0; turn < maxTurns; turn++) {
-            // Select speaker
-            const speaker =
-                turn === 0 ?
-                    selectFirstSpeaker(session.participants, session.format)
-                :   selectNextSpeaker({
-                        participants: session.participants,
-                        lastSpeaker: history[history.length - 1].speaker,
-                        history,
-                        affinityMap,
-                        format: session.format,
-                    });
+    let abortReason: string | null = null;
 
-            const voice = getVoice(speaker);
-            const speakerName = voice?.displayName ?? speaker;
-
-            // Determine interaction type based on affinity with last speaker
-            let interactionType: string | undefined;
-            if (turn > 0) {
-                const lastSpeaker = history[history.length - 1].speaker;
-                const affinity = getAffinityFromMap(
+    for (let turn = 0; turn < maxTurns; turn++) {
+        // Select speaker
+        const speaker =
+            turn === 0 ?
+                selectFirstSpeaker(session.participants, session.format)
+            :   selectNextSpeaker({
+                    participants: session.participants,
+                    lastSpeaker: history[history.length - 1].speaker,
+                    history,
                     affinityMap,
-                    speaker,
-                    lastSpeaker,
-                );
-                interactionType = getInteractionType(affinity);
-            }
+                    format: session.format,
+                });
 
-            // Generate dialogue via LLM
-            const systemPrompt = buildSystemPrompt(
+        const voice = getVoice(speaker);
+        const speakerName = voice?.displayName ?? speaker;
+
+        // Determine interaction type based on affinity with last speaker
+        let interactionType: string | undefined;
+        if (turn > 0) {
+            const lastSpeaker = history[history.length - 1].speaker;
+            const affinity = getAffinityFromMap(
+                affinityMap,
                 speaker,
-                history,
-                session.format,
-                session.topic,
-                interactionType,
-                voiceModifiersMap.get(speaker),
+                lastSpeaker,
             );
-            const userPrompt = buildUserPrompt(
-                session.topic,
-                turn,
-                maxTurns,
-                speakerName,
-                session.format,
-            );
+            interactionType = getInteractionType(affinity);
+        }
 
-            const rawDialogue = await llmGenerate({
+        // Generate dialogue via LLM
+        const systemPrompt = buildSystemPrompt(
+            speaker,
+            history,
+            session.format,
+            session.topic,
+            interactionType,
+            voiceModifiersMap.get(speaker),
+            agentToolsMap.get(speaker),
+        );
+        const userPrompt = buildUserPrompt(
+            session.topic,
+            turn,
+            maxTurns,
+            speakerName,
+            session.format,
+        );
+
+        const speakerTools = agentToolsMap.get(speaker) ?? [];
+
+        let rawDialogue: string;
+        try {
+            rawDialogue = await llmGenerate({
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: userPrompt },
                 ],
                 temperature: format.temperature,
                 maxTokens: 100,
+                model: session.model ?? format.defaultModel ?? undefined,
+                tools: speakerTools.length > 0 ? speakerTools : undefined,
+                maxToolRounds: 2,
             });
-
-            const dialogue = sanitizeDialogue(rawDialogue, 120);
-
-            const entry: ConversationTurnEntry = {
-                speaker,
-                dialogue,
+        } catch (err) {
+            log.error('LLM failed during conversation', {
+                error: err,
                 turn,
-            };
-            history.push(entry);
-
-            // Store turn in database
-            await sql`
-                INSERT INTO ops_roundtable_turns (session_id, turn_number, speaker, dialogue, metadata)
-                VALUES (${session.id}, ${turn}, ${speaker}, ${dialogue}, ${JSON.stringify({ speakerName })}::jsonb)
-            `;
-
-            // Update session turn count
-            await sql`
-                UPDATE ops_roundtable_sessions
-                SET turn_count = ${turn + 1}
-                WHERE id = ${session.id}
-            `;
-
-            // Emit turn event
-            await emitEvent({
-                agent_id: speaker,
-                kind: 'conversation_turn',
-                title: `${speakerName}: ${dialogue}`,
-                tags: ['conversation', 'turn', session.format],
-                metadata: {
-                    sessionId: session.id,
-                    turn,
-                    dialogue,
-                },
+                speaker: speakerName,
+                sessionId: session.id,
             });
-
-            // Natural delay between turns (3-8 seconds)
-            if (delayBetweenTurns && turn < maxTurns - 1) {
-                const delay = 3000 + Math.random() * 5000;
-                await new Promise(resolve => setTimeout(resolve, delay));
-            }
+            abortReason = (err as Error).message;
+            break;
         }
 
-        // Mark session as completed
+        const dialogue = sanitizeDialogue(rawDialogue, 120);
+
+        const entry: ConversationTurnEntry = {
+            speaker,
+            dialogue,
+            turn,
+        };
+        history.push(entry);
+
+        // Store turn in database
+        await sql`
+            INSERT INTO ops_roundtable_turns (session_id, turn_number, speaker, dialogue, metadata)
+            Values (${session.id}, ${turn}, ${speaker}, ${dialogue}, ${jsonb({ speakerName })})
+        `;
+
+        // Update session turn count
         await sql`
             UPDATE ops_roundtable_sessions
-            SET status = 'completed',
-                turn_count = ${history.length},
-                completed_at = NOW()
+            SET turn_count = ${turn + 1}
             WHERE id = ${session.id}
         `;
 
-        // Emit completion event
+        // Emit turn event
         await emitEvent({
-            agent_id: 'system',
-            kind: 'conversation_completed',
-            title: `${session.format} completed: ${session.topic}`,
-            summary: `${history.length} turns | Speakers: ${[...new Set(history.map(h => h.speaker))].join(', ')}`,
-            tags: ['conversation', 'completed', session.format],
+            agent_id: speaker,
+            kind: 'conversation_turn',
+            title: `${speakerName}: ${dialogue}`,
+            tags: ['conversation', 'turn', session.format],
             metadata: {
                 sessionId: session.id,
-                turnCount: history.length,
-                speakers: [...new Set(history.map(h => h.speaker))],
+                turn,
+                dialogue,
             },
         });
 
-        // Distill memories from the conversation (best-effort)
+        // Natural delay between turns (3-8 seconds)
+        if (delayBetweenTurns && turn < maxTurns - 1) {
+            const delay = 3000 + Math.random() * 5000;
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+
+    // Determine final status — completed if we got at least 3 turns, failed otherwise
+    const finalStatus =
+        history.length >= 3 || !abortReason ? 'completed' : 'failed';
+
+    await sql`
+        UPDATE ops_roundtable_sessions
+        SET status = ${finalStatus},
+            turn_count = ${history.length},
+            completed_at = NOW(),
+            metadata = ${jsonb(
+                abortReason ?
+                    {
+                        ...(session.metadata ?? {}),
+                        abortReason,
+                        abortedAtTurn: history.length,
+                    }
+                :   (session.metadata ?? {}),
+            )}
+        WHERE id = ${session.id}
+    `;
+
+    const speakers = [...new Set(history.map(h => h.speaker))].join(', ');
+
+    await emitEvent({
+        agent_id: 'system',
+        kind:
+            finalStatus === 'completed' ?
+                'conversation_completed'
+            :   'conversation_failed',
+        title: `${session.format} ${finalStatus}: ${session.topic}`,
+        summary:
+            abortReason ?
+                `${history.length} turns (aborted: ${abortReason})`
+            :   `${history.length} turns | Speakers: ${speakers}`,
+        tags: ['conversation', finalStatus, session.format],
+        metadata: {
+            sessionId: session.id,
+            turnCount: history.length,
+            speakers: [...new Set(history.map(h => h.speaker))],
+            ...(abortReason ? { abortReason } : {}),
+        },
+    });
+
+    // Distill memories from the conversation (best-effort, even if aborted)
+    if (history.length >= 3) {
         try {
             await distillConversationMemories(
                 session.id,
@@ -322,42 +390,14 @@ export async function orchestrateConversation(
                 session.format,
             );
         } catch (err) {
-            console.error(
-                '[orchestrator] Memory distillation failed:',
-                (err as Error).message,
-            );
-        }
-
-        return history;
-    } catch (err) {
-        // Mark session as failed
-        const errorMeta = {
-            ...session.metadata,
-            error: (err as Error).message,
-        };
-        await sql`
-            UPDATE ops_roundtable_sessions
-            SET status = 'failed',
-                completed_at = NOW(),
-                metadata = ${JSON.stringify(errorMeta)}::jsonb
-            WHERE id = ${session.id}
-        `;
-
-        await emitEvent({
-            agent_id: 'system',
-            kind: 'conversation_failed',
-            title: `${session.format} failed: ${session.topic}`,
-            summary: (err as Error).message,
-            tags: ['conversation', 'failed', session.format],
-            metadata: {
+            log.error('Memory distillation failed', {
+                error: err,
                 sessionId: session.id,
-                error: (err as Error).message,
-                turnsCompleted: history.length,
-            },
-        });
-
-        throw err;
+            });
+        }
     }
+
+    return history;
 }
 
 /**
@@ -370,16 +410,18 @@ export async function enqueueConversation(options: {
     participants: string[];
     scheduleSlot?: string;
     scheduledFor?: string;
+    model?: string;
 }): Promise<string> {
     const [row] = await sql<[{ id: string }]>`
-        INSERT INTO ops_roundtable_sessions (format, topic, participants, status, schedule_slot, scheduled_for)
+        INSERT INTO ops_roundtable_sessions (format, topic, participants, status, schedule_slot, scheduled_for, model)
         VALUES (
             ${options.format},
             ${options.topic},
             ${options.participants},
             'pending',
             ${options.scheduleSlot ?? null},
-            ${options.scheduledFor ?? new Date().toISOString()}
+            ${options.scheduledFor ?? new Date().toISOString()},
+            ${options.model ?? null}
         )
         RETURNING id
     `;

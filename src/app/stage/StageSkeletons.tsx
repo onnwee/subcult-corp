@@ -62,3 +62,52 @@ export function OfficeRoomSkeleton() {
         </div>
     );
 }
+
+export function SystemLogsSkeleton() {
+    return (
+        <div className='space-y-3 animate-pulse'>
+            <div className='grid grid-cols-4 gap-2'>
+                {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className='h-20 rounded-lg bg-zinc-800/40' />
+                ))}
+            </div>
+            <div className='grid grid-cols-2 gap-3'>
+                <div className='h-24 rounded-lg bg-zinc-800/40' />
+                <div className='h-24 rounded-lg bg-zinc-800/40' />
+            </div>
+            <div className='h-48 rounded-lg bg-zinc-800/40' />
+            <div className='grid grid-cols-2 gap-3'>
+                <div className='h-64 rounded-lg bg-zinc-800/40' />
+                <div className='h-56 rounded-lg bg-zinc-800/40' />
+            </div>
+        </div>
+    );
+}
+
+export function EventLogFeedSkeleton() {
+    return (
+        <div className='rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden'>
+            <div className='flex items-center justify-between px-4 py-3 border-b border-zinc-800'>
+                <div className='h-4 w-24 rounded bg-zinc-700 animate-pulse' />
+                <div className='h-6 w-48 rounded bg-zinc-700 animate-pulse' />
+            </div>
+            <div className='p-4 space-y-3 animate-pulse'>
+                {Array.from({ length: 6 }).map((_, i) => (
+                    <div
+                        key={i}
+                        className='flex items-start gap-3 rounded-lg bg-zinc-800/40 p-3'
+                    >
+                        <div className='h-3 w-12 rounded bg-zinc-700' />
+                        <div className='h-2 w-2 rounded-full bg-zinc-700 mt-1' />
+                        <div className='h-6 w-8 rounded bg-zinc-700' />
+                        <div className='flex-1 space-y-2'>
+                            <div className='h-3 w-24 rounded bg-zinc-700' />
+                            <div className='h-3 w-3/4 rounded bg-zinc-700' />
+                            <div className='h-3 w-1/3 rounded bg-zinc-700' />
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}

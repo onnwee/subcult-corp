@@ -2,8 +2,8 @@
 
 .PHONY: dev build start lint typecheck clean \
         seed seed-policy seed-triggers seed-proactive seed-roundtable seed-relationships \
-        verify workers-start workers-stop workers-status workers-logs \
-        heartbeat db-migrate help
+        verify up down restart status logs logs-app logs-roundtable logs-initiative \
+        heartbeat db-migrate db-shell help
 
 # ──────────────────────────────────────────
 # Development
@@ -12,10 +12,10 @@
 dev: ## Start Next.js dev server
 	npm run dev
 
-build: ## Production build
+build: ## Production build (local)
 	npm run build
 
-start: ## Start production server
+start: ## Start production server (local)
 	npm run start
 
 lint: ## Run ESLint
@@ -28,96 +28,100 @@ clean: ## Remove .next build cache
 	rm -rf .next
 
 # ──────────────────────────────────────────
+# Docker — Full Stack
+# ──────────────────────────────────────────
+
+up: ## Build and start all containers
+	docker compose up -d --build
+
+down: ## Stop all containers
+	docker compose down
+
+restart: ## Restart all containers
+	docker compose restart
+
+rebuild: ## Rebuild images and recreate containers
+	docker compose up -d --build --force-recreate
+
+status: ## Show status of all containers
+	docker compose ps
+
+# ──────────────────────────────────────────
+# Docker — Logs
+# ──────────────────────────────────────────
+
+logs: ## Tail logs from all containers
+	docker compose logs -f --tail=50
+
+logs-app: ## Tail app container logs
+	docker compose logs -f --tail=50 app
+
+logs-roundtable: ## Tail roundtable worker logs
+	docker compose logs -f --tail=50 roundtable-worker
+
+logs-initiative: ## Tail initiative worker logs
+	docker compose logs -f --tail=50 initiative-worker
+
+logs-db: ## Tail Postgres logs
+	docker compose logs -f --tail=50 postgres
+
+# ──────────────────────────────────────────
 # Database
 # ──────────────────────────────────────────
 
-db-migrate: ## Run all SQL migrations against DATABASE_URL
-	@source .env.local 2>/dev/null; \
-	for f in db/migrations/*.sql; do \
+db-migrate: ## Run all SQL migrations against the container DB
+	@for f in db/migrations/*.sql; do \
 		echo "Running $$f..."; \
-		psql "$$DATABASE_URL" -f "$$f" 2>&1 | tail -1; \
+		docker compose exec -T postgres psql -U subcult -d subcult_ops -f - < "$$f" 2>&1 | tail -1; \
 	done
 	@echo "Migrations complete."
+
+db-shell: ## Open psql shell in the Postgres container
+	docker compose exec postgres psql -U subcult -d subcult_ops
 
 # ──────────────────────────────────────────
 # Database Seeding
 # ──────────────────────────────────────────
 
+DB_URL := postgresql://subcult:$(shell grep POSTGRES_PASSWORD .env.local | cut -d= -f2)@127.0.0.1:5433/subcult_ops
+
 seed: ## Run ALL seed scripts in order
-	node scripts/go-live/seed-all.mjs
+	DATABASE_URL="$(DB_URL)" node scripts/go-live/seed-all.mjs
 
 seed-policy: ## Seed core policies
-	node scripts/go-live/seed-ops-policy.mjs
+	DATABASE_URL="$(DB_URL)" node scripts/go-live/seed-ops-policy.mjs
 
 seed-triggers: ## Seed reactive trigger rules
-	node scripts/go-live/seed-trigger-rules.mjs
+	DATABASE_URL="$(DB_URL)" node scripts/go-live/seed-trigger-rules.mjs
 
 seed-proactive: ## Seed proactive triggers (disabled by default)
-	node scripts/go-live/seed-proactive-triggers.mjs
+	DATABASE_URL="$(DB_URL)" node scripts/go-live/seed-proactive-triggers.mjs
 
 seed-roundtable: ## Seed roundtable policies
-	node scripts/go-live/seed-roundtable-policy.mjs
+	DATABASE_URL="$(DB_URL)" node scripts/go-live/seed-roundtable-policy.mjs
 
-seed-relationships: ## Seed agent relationships (10 pairs)
-	node scripts/go-live/seed-relationships.mjs
+seed-relationships: ## Seed agent relationships (15 pairs)
+	DATABASE_URL="$(DB_URL)" node scripts/go-live/seed-relationships.mjs
 
 # ──────────────────────────────────────────
 # Verification & Monitoring
 # ──────────────────────────────────────────
 
 verify: ## Run launch verification checks
-	node scripts/go-live/verify-launch.mjs
+	DATABASE_URL="$(DB_URL)" node scripts/go-live/verify-launch.mjs
 
-heartbeat: ## Trigger heartbeat manually (requires CRON_SECRET in .env.local)
-	@source .env.local 2>/dev/null; \
+heartbeat: ## Trigger heartbeat (via Docker internal network)
+	@CRON_SECRET=$$(grep CRON_SECRET .env.local 2>/dev/null | cut -d= -f2); \
+	docker compose exec app wget -qO- \
+		--header="Authorization: Bearer $$CRON_SECRET" \
+		http://127.0.0.1:3000/api/ops/heartbeat | \
+		python3 -m json.tool
+
+heartbeat-ext: ## Trigger heartbeat (via external URL)
+	@CRON_SECRET=$$(grep CRON_SECRET .env.local 2>/dev/null | cut -d= -f2); \
 	curl -s -H "Authorization: Bearer $$CRON_SECRET" \
-		http://localhost:3000/api/ops/heartbeat | \
-		node -e "process.stdin.on('data',d=>console.log(JSON.stringify(JSON.parse(d),null,2)))"
-
-heartbeat-local: ## Alias for heartbeat (same target on VPS)
-	@$(MAKE) heartbeat
-
-# ──────────────────────────────────────────
-# VPS Workers (systemd)
-# ──────────────────────────────────────────
-
-workers-install: ## Copy systemd service files to /etc/systemd/system
-	sudo cp deploy/systemd/subcult-*.service /etc/systemd/system/
-	sudo systemctl daemon-reload
-	@echo "Services installed. Enable with: make workers-start"
-
-workers-start: ## Enable and start all workers
-	sudo systemctl enable --now subcult-roundtable subcult-initiative
-
-workers-stop: ## Stop all workers
-	sudo systemctl stop subcult-roundtable subcult-initiative
-
-workers-restart: ## Restart all workers
-	sudo systemctl restart subcult-roundtable subcult-initiative
-
-workers-status: ## Show status of all workers
-	@sudo systemctl status subcult-roundtable --no-pager -l 2>/dev/null || true
-	@echo ""
-	@sudo systemctl status subcult-initiative --no-pager -l 2>/dev/null || true
-
-workers-logs: ## Tail worker logs (all workers)
-	sudo journalctl -u 'subcult-*' -f
-
-logs-roundtable: ## Tail roundtable worker logs
-	sudo journalctl -u subcult-roundtable -f
-
-logs-initiative: ## Tail initiative worker logs
-	sudo journalctl -u subcult-initiative -f
-
-# ──────────────────────────────────────────
-# Local Workers (foreground, for development)
-# ──────────────────────────────────────────
-
-run-roundtable: ## Run roundtable worker locally (foreground)
-	node scripts/roundtable-worker/worker.mjs
-
-run-initiative: ## Run initiative worker locally (foreground)
-	node scripts/initiative-worker/worker.mjs
+		https://subcorp.subcult.tv/api/ops/heartbeat | \
+		python3 -m json.tool
 
 # ──────────────────────────────────────────
 # Help

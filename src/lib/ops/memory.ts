@@ -6,6 +6,9 @@ import type {
     MemoryQuery,
     MemoryCache,
 } from '../types';
+import { logger } from '@/lib/logger';
+
+const log = logger.child({ module: 'memory' });
 
 const MAX_MEMORIES_PER_AGENT = 200;
 
@@ -57,10 +60,11 @@ export async function writeMemory(input: MemoryInput): Promise<string | null> {
         `;
         return row.id;
     } catch (err) {
-        console.error(
-            '[memory] Failed to write memory:',
-            (err as Error).message,
-        );
+        log.error('Failed to write memory', {
+            error: err,
+            agent_id: input.agent_id,
+            type: input.type,
+        });
         return null;
     }
 }

@@ -8,17 +8,19 @@
 //   OPENROUTER_API_KEY, LLM_MODEL (optional)
 
 import postgres from 'postgres';
-import { OpenRouter } from '@openrouter/sdk';
+import { OpenRouter, ToolType } from '@openrouter/sdk';
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
+import { createLogger } from '../lib/logger.mjs';
+const log = createLogger({ service: 'roundtable-worker' });
 
 // ─── Config ───
 
 const POLL_INTERVAL_MS = 30_000; // 30 seconds
-const MAX_DIALOGUE_LENGTH = 120;
+const MAX_DIALOGUE_LENGTH = 500;
 
 if (!process.env.DATABASE_URL) {
-    console.error('Missing DATABASE_URL environment variable');
+    log.fatal('Missing DATABASE_URL environment variable');
     process.exit(1);
 }
 
@@ -29,14 +31,605 @@ const sql = postgres(process.env.DATABASE_URL, {
 });
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? '';
-const LLM_MODEL = process.env.LLM_MODEL ?? 'openrouter/auto';
+
+/** Normalize model ID — strip erroneous openrouter/ prefix */
+function normalizeModel(id) {
+    if (id === 'openrouter/auto') return id;
+    if (id.startsWith('openrouter/')) return id.slice('openrouter/'.length);
+    return id;
+}
+
+/**
+ * Dialogue models — fast, cheap, personality-focused.
+ * Used for conversation turns (high volume, 120-char responses).
+ * Ordered by speed/cost for efficient routing.
+ */
+const DIALOGUE_MODELS = [
+    'anthropic/claude-haiku-4.5', // fast, great personality
+    'google/gemini-2.5-flash', // very fast, very cheap
+    'openai/gpt-4.1-mini', // fast, reliable
+    'deepseek/deepseek-v3.2', // cheap, good quality
+    'qwen/qwen3-235b-a22b', // good creative output
+    'moonshotai/kimi-k2.5', // broad coverage
+];
+
+/**
+ * Distillation models — reliable structured JSON output.
+ * Used for memory extraction and relationship drift analysis.
+ * Smaller set of models known to produce clean JSON.
+ */
+const DISTILL_MODELS = [
+    'google/gemini-2.5-flash', // fast, great at structured output
+    'anthropic/claude-haiku-4.5', // reliable JSON
+    'openai/gpt-4.1-mini', // reliable JSON
+    'deepseek/deepseek-v3.2', // good at following format
+];
+
+/** Effective dialogue model list (env override prepended if set) */
+const LLM_MODELS = (() => {
+    const envModel = process.env.LLM_MODEL;
+    if (!envModel || envModel === 'openrouter/auto') return DIALOGUE_MODELS;
+    const normalized = normalizeModel(envModel);
+    return [normalized, ...DIALOGUE_MODELS.filter(m => m !== normalized)];
+})();
 
 if (!OPENROUTER_API_KEY) {
-    console.error('Missing OPENROUTER_API_KEY environment variable');
+    log.fatal('Missing OPENROUTER_API_KEY environment variable');
     process.exit(1);
 }
 
 const openrouter = new OpenRouter({ apiKey: OPENROUTER_API_KEY });
+
+// ─── Ollama (local inference via Tailscale) ───
+
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? '';
+const OLLAMA_TIMEOUT_MS = 45_000; // generous — model may need to load into VRAM
+
+/**
+ * Ollama models for dialogue — qwen3:32b is the primary (great personality).
+ * Using one model avoids GPU swap overhead between turns.
+ */
+const OLLAMA_MODELS = ['qwen3:32b'];
+
+/** Strip <think>...</think> blocks from reasoning model output */
+function stripThinking(text) {
+    return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+}
+
+/**
+ * Try generating via Ollama's OpenAI-compatible endpoint.
+ * Returns trimmed text or null on failure/empty.
+ */
+async function ollamaGenerate(messages, temperature, model, maxTokens = 250) {
+    if (!OLLAMA_BASE_URL) return null;
+
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(
+            () => controller.abort(),
+            OLLAMA_TIMEOUT_MS,
+        );
+
+        // Use native Ollama API with think:false — disables qwen3 reasoning chain
+        // for short dialogue turns (faster, no empty-after-strip responses)
+        const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model,
+                messages,
+                stream: false,
+                think: false,
+                options: {
+                    temperature,
+                    num_predict: maxTokens,
+                },
+            }),
+            signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            log.warn('Ollama HTTP error', { model, status: response.status });
+            return null;
+        }
+
+        const data = await response.json();
+        const raw = data.message?.content ?? '';
+        const text = stripThinking(raw).trim();
+        if (text.length > 0) return text;
+
+        log.warn('Ollama empty response', { model });
+        return null;
+    } catch (err) {
+        const isTimeout = err?.name === 'AbortError';
+        log.warn('Ollama call failed', {
+            model,
+            timeout: isTimeout,
+            error: isTimeout ? undefined : err?.message,
+        });
+        return null;
+    }
+}
+
+// ─── OpenClaw Gateway Bridge ───
+
+const OPENCLAW_GATEWAY_URL =
+    process.env.OPENCLAW_GATEWAY_URL ?? 'http://localhost:3579';
+const OPENCLAW_AUTH_TOKEN = process.env.OPENCLAW_AUTH_TOKEN ?? '';
+const OPENCLAW_TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS) || 30_000;
+
+let openclawAvailable = false;
+let lastHealthCheck = 0;
+
+async function checkGatewayHealth() {
+    const now = Date.now();
+    if (now - lastHealthCheck < 60_000) return openclawAvailable;
+
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5_000);
+        const response = await fetch(
+            `${OPENCLAW_GATEWAY_URL}/v1/chat/completions`,
+            {
+                method: 'POST',
+                signal: controller.signal,
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(OPENCLAW_AUTH_TOKEN ?
+                        { Authorization: `Bearer ${OPENCLAW_AUTH_TOKEN}` }
+                    :   {}),
+                },
+                body: JSON.stringify({
+                    model: 'openclaw',
+                    messages: [{ role: 'user', content: 'ping' }],
+                    max_tokens: 1,
+                }),
+            },
+        );
+        clearTimeout(timeoutId);
+        openclawAvailable = response.ok;
+    } catch {
+        openclawAvailable = false;
+    }
+    lastHealthCheck = now;
+    return openclawAvailable;
+}
+
+async function executeSkill(skillId, params) {
+    const startTime = Date.now();
+    const isAvailable = await checkGatewayHealth();
+
+    if (!isAvailable) {
+        return {
+            success: false,
+            skillId,
+            output: {
+                message: `OpenClaw gateway unavailable. Skill "${skillId}" cannot execute. Use existing knowledge instead.`,
+                fallback: true,
+            },
+            error: 'Gateway unavailable',
+            durationMs: Date.now() - startTime,
+        };
+    }
+
+    const paramSummary = Object.entries(params)
+        .map(
+            ([k, v]) =>
+                `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`,
+        )
+        .join('\n');
+
+    const prompt = `Use the "${skillId}" skill with these parameters:\n${paramSummary}\n\nReturn the skill output directly, no extra commentary.`;
+
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(
+            () => controller.abort(),
+            OPENCLAW_TIMEOUT_MS,
+        );
+
+        const response = await fetch(
+            `${OPENCLAW_GATEWAY_URL}/v1/chat/completions`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(OPENCLAW_AUTH_TOKEN ?
+                        { Authorization: `Bearer ${OPENCLAW_AUTH_TOKEN}` }
+                    :   {}),
+                },
+                body: JSON.stringify({
+                    model: 'openclaw',
+                    messages: [{ role: 'user', content: prompt }],
+                    max_tokens: 2000,
+                }),
+                signal: controller.signal,
+            },
+        );
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            const errorBody = await response
+                .text()
+                .catch(() => 'Unknown error');
+            return {
+                success: false,
+                skillId,
+                output: { message: `Skill "${skillId}" failed: ${errorBody}` },
+                error: `HTTP ${response.status}: ${errorBody}`,
+                durationMs: Date.now() - startTime,
+            };
+        }
+
+        const result = await response.json();
+        const content = result.choices?.[0]?.message?.content?.trim() ?? '';
+        return {
+            success: true,
+            skillId,
+            output: { text: content },
+            durationMs: Date.now() - startTime,
+        };
+    } catch (error) {
+        const isTimeout = error?.name === 'AbortError';
+        return {
+            success: false,
+            skillId,
+            output: {
+                message:
+                    isTimeout ?
+                        `Skill "${skillId}" timed out`
+                    :   `Skill "${skillId}" failed: ${error?.message ?? 'unknown'}`,
+            },
+            error:
+                isTimeout ?
+                    `Timeout after ${OPENCLAW_TIMEOUT_MS}ms`
+                :   (error?.message ?? 'unknown'),
+            durationMs: Date.now() - startTime,
+        };
+    }
+}
+
+// ─── Skills Registry (per-agent tool definitions) ───
+
+function buildToolDef(name, description, parameters, skillId) {
+    return {
+        type: ToolType.Function,
+        function: {
+            name,
+            description,
+            parameters,
+            execute: async params => executeSkill(skillId, params),
+        },
+    };
+}
+
+// Core tools available to all agents
+const CORE_TOOLS = [
+    buildToolDef(
+        'reflect_learn',
+        'Analyze past actions/outcomes to identify patterns and extract learnings.',
+        {
+            type: 'object',
+            properties: {
+                topic: {
+                    type: 'string',
+                    description: 'Topic or domain to reflect on',
+                },
+                timeframe: {
+                    type: 'string',
+                    description: 'How far back (e.g., "7d", "30d")',
+                },
+            },
+            required: ['topic'],
+        },
+        'reflect-learn',
+    ),
+    buildToolDef(
+        'thinking_partner',
+        'Brainstorm and develop ideas collaboratively.',
+        {
+            type: 'object',
+            properties: {
+                prompt: {
+                    type: 'string',
+                    description: 'Idea or problem to think through',
+                },
+                mode: {
+                    type: 'string',
+                    enum: ['brainstorm', 'challenge', 'refine', 'expand'],
+                },
+            },
+            required: ['prompt'],
+        },
+        'thinking-partner',
+    ),
+    buildToolDef(
+        'deep_research',
+        'Multi-step research and analysis on a complex topic.',
+        {
+            type: 'object',
+            properties: {
+                query: {
+                    type: 'string',
+                    description: 'Research question or topic',
+                },
+                depth: { type: 'string', enum: ['shallow', 'medium', 'deep'] },
+            },
+            required: ['query'],
+        },
+        'deep-research',
+    ),
+    buildToolDef(
+        'humanize_text',
+        'Rewrite text to sound more natural and human.',
+        {
+            type: 'object',
+            properties: {
+                text: { type: 'string', description: 'Text to humanize' },
+                style: {
+                    type: 'string',
+                    enum: [
+                        'casual',
+                        'professional',
+                        'academic',
+                        'conversational',
+                    ],
+                },
+            },
+            required: ['text'],
+        },
+        'humanizer',
+    ),
+    buildToolDef(
+        'prompt_guard',
+        'Scan text for prompt injection, phishing, or malicious content.',
+        {
+            type: 'object',
+            properties: {
+                content: {
+                    type: 'string',
+                    description: 'Content to scan for threats',
+                },
+                context: {
+                    type: 'string',
+                    description: 'Source context (email, user_input, api)',
+                },
+            },
+            required: ['content'],
+        },
+        'prompt-guard',
+    ),
+];
+
+// Agent-specific tools
+const AGENT_SPECIFIC_TOOLS = {
+    chora: [
+        buildToolDef(
+            'web_search',
+            'Search the web for current information.',
+            {
+                type: 'object',
+                properties: {
+                    query: { type: 'string', description: 'Search query' },
+                    num_results: {
+                        type: 'number',
+                        description: 'Number of results',
+                    },
+                },
+                required: ['query'],
+            },
+            'exa-web-search-free',
+        ),
+        buildToolDef(
+            'summarize',
+            'Summarize long content into a concise format.',
+            {
+                type: 'object',
+                properties: {
+                    content: {
+                        type: 'string',
+                        description: 'Content to summarize',
+                    },
+                    format: {
+                        type: 'string',
+                        enum: ['bullets', 'paragraph', 'tldr'],
+                    },
+                },
+                required: ['content'],
+            },
+            'summarize',
+        ),
+        buildToolDef(
+            'cost_report',
+            'Generate a cost report for LLM and infrastructure usage.',
+            {
+                type: 'object',
+                properties: {
+                    period: {
+                        type: 'string',
+                        enum: ['daily', 'weekly', 'monthly'],
+                    },
+                },
+                required: [],
+            },
+            'cost-report',
+        ),
+    ],
+    subrosa: [
+        buildToolDef(
+            'security_audit',
+            'Run a security audit on workspace files and configs.',
+            {
+                type: 'object',
+                properties: {
+                    scope: {
+                        type: 'string',
+                        enum: [
+                            'full',
+                            'credentials',
+                            'permissions',
+                            'services',
+                        ],
+                    },
+                    auto_fix: { type: 'boolean' },
+                },
+                required: [],
+            },
+            'security-audit',
+        ),
+        buildToolDef(
+            'security_suite_scan',
+            'Run full ClawdBot security suite.',
+            {
+                type: 'object',
+                properties: {
+                    target: {
+                        type: 'string',
+                        description: 'What to scan (workspace, services, all)',
+                    },
+                },
+                required: [],
+            },
+            'clawdbot-security-suite',
+        ),
+    ],
+    thaum: [
+        buildToolDef(
+            'persona_design',
+            'Design or refine an AI persona.',
+            {
+                type: 'object',
+                properties: {
+                    name: {
+                        type: 'string',
+                        description: 'Persona name or identifier',
+                    },
+                    action: {
+                        type: 'string',
+                        enum: ['create', 'refine', 'analyze'],
+                    },
+                    context: { type: 'string' },
+                },
+                required: ['name'],
+            },
+            'ai-persona-os',
+        ),
+        buildToolDef(
+            'create_skill',
+            'Design and create a new OpenClaw skill.',
+            {
+                type: 'object',
+                properties: {
+                    name: { type: 'string', description: 'Skill name' },
+                    purpose: {
+                        type: 'string',
+                        description: 'What the skill should do',
+                    },
+                    inputs: { type: 'string' },
+                    outputs: { type: 'string' },
+                },
+                required: ['name', 'purpose'],
+            },
+            'skill-creator',
+        ),
+    ],
+    praxis: [
+        buildToolDef(
+            'git_operation',
+            'Execute git operations like status, diff, commit.',
+            {
+                type: 'object',
+                properties: {
+                    operation: {
+                        type: 'string',
+                        enum: [
+                            'status',
+                            'diff',
+                            'commit',
+                            'push',
+                            'branch',
+                            'log',
+                        ],
+                    },
+                    args: { type: 'string' },
+                },
+                required: ['operation'],
+            },
+            'git-essentials',
+        ),
+        buildToolDef(
+            'twitter_action',
+            'Interact with Twitter/X. Requires Subrosa clearance before posting.',
+            {
+                type: 'object',
+                properties: {
+                    action: {
+                        type: 'string',
+                        enum: [
+                            'post',
+                            'reply',
+                            'like',
+                            'retweet',
+                            'search',
+                            'timeline',
+                        ],
+                    },
+                    content: { type: 'string' },
+                    tweet_id: { type: 'string' },
+                },
+                required: ['action'],
+            },
+            'twitter',
+        ),
+        buildToolDef(
+            'discord_action',
+            'Interact with Discord channels.',
+            {
+                type: 'object',
+                properties: {
+                    action: {
+                        type: 'string',
+                        enum: ['send', 'react', 'read', 'reply'],
+                    },
+                    channel: { type: 'string' },
+                    content: { type: 'string' },
+                },
+                required: ['action'],
+            },
+            'discord',
+        ),
+        buildToolDef(
+            'docker_operation',
+            'Execute Docker operations (ps, logs, restart, etc.).',
+            {
+                type: 'object',
+                properties: {
+                    operation: {
+                        type: 'string',
+                        enum: ['ps', 'logs', 'restart', 'build', 'compose'],
+                    },
+                    target: { type: 'string' },
+                    args: { type: 'string' },
+                },
+                required: ['operation'],
+            },
+            'docker-essentials',
+        ),
+    ],
+    mux: [],
+    primus: [],
+};
+
+/**
+ * Get all tools available to a specific agent.
+ */
+function getAgentTools(agentId) {
+    const specific = AGENT_SPECIFIC_TOOLS[agentId] ?? [];
+    return [...CORE_TOOLS, ...specific];
+}
 
 // ─── Agent Voices — deep personality from IDENTITY + SOUL design docs ───
 
@@ -361,23 +954,95 @@ function getInteractionType(affinity) {
 
 // ─── LLM ───
 
-async function llmGenerate(messages, temperature = 0.7) {
+const MAX_LLM_RETRIES = 2;
+const LLM_RETRY_BASE_MS = 3000;
+
+async function llmGenerate(
+    messages,
+    temperature = 0.7,
+    tools = null,
+    models = null,
+    maxTokens = 250,
+) {
+    const effectiveModels = models ?? LLM_MODELS;
     const systemMessage = messages.find(m => m.role === 'system');
     const conversationMessages = messages.filter(m => m.role !== 'system');
 
-    const result = openrouter.callModel({
-        model: LLM_MODEL,
-        ...(systemMessage ? { instructions: systemMessage.content } : {}),
-        input: conversationMessages.map(m => ({
-            role: m.role,
-            content: m.content,
-        })),
-        temperature,
-        maxOutputTokens: 100,
-    });
+    // ── 1) Try Ollama first (free, local inference) ──
+    if (OLLAMA_BASE_URL) {
+        for (const model of OLLAMA_MODELS) {
+            const text = await ollamaGenerate(messages, temperature, model, maxTokens);
+            if (text) {
+                log.debug('Ollama model succeeded', { model });
+                return text;
+            }
+        }
+    }
 
-    const text = await result.getText();
-    return text?.trim() ?? '';
+    // ── 2) Fall back to OpenRouter (cloud) ──
+    const buildCallOptions = spec => {
+        const isArray = Array.isArray(spec);
+        return {
+            ...(isArray ? { models: spec } : { model: spec }),
+            ...(isArray ? { provider: { allowFallbacks: true } } : {}),
+            ...(systemMessage ? { instructions: systemMessage.content } : {}),
+            input: conversationMessages.map(m => ({
+                role: m.role,
+                content: m.content,
+            })),
+            temperature,
+            maxOutputTokens: maxTokens,
+        };
+    };
+
+    /** Try an OpenRouter call, return trimmed text or null if empty */
+    async function tryCall(spec) {
+        const result = openrouter.callModel(buildCallOptions(spec));
+        const text = await result.getText();
+        const trimmed = text?.trim() ?? '';
+        if (trimmed.length > 0) return trimmed;
+        log.warn('OpenRouter returned empty', {
+            models: Array.isArray(spec) ? spec.join(',') : spec,
+        });
+        return null;
+    }
+
+    // Try with models array (OpenRouter allows max 3 in the array)
+    const arrayModels = effectiveModels.slice(0, 3);
+    for (let attempt = 0; attempt <= MAX_LLM_RETRIES; attempt++) {
+        try {
+            const text = await tryCall(arrayModels);
+            if (text) return text;
+            break;
+        } catch (err) {
+            if (attempt < MAX_LLM_RETRIES) {
+                const backoff = LLM_RETRY_BASE_MS * (attempt + 1);
+                log.warn('OpenRouter attempt failed', {
+                    attempt: attempt + 1,
+                    error: err.message,
+                    retryMs: backoff,
+                });
+                await new Promise(r => setTimeout(r, backoff));
+            }
+        }
+    }
+
+    // Try remaining models individually
+    for (const model of effectiveModels.slice(3)) {
+        try {
+            log.debug('Trying individual OpenRouter model', { model });
+            const text = await tryCall(model);
+            if (text) return text;
+        } catch (err) {
+            log.warn('Individual OpenRouter model failed', {
+                model,
+                error: err.message,
+            });
+        }
+    }
+
+    log.error('All models exhausted');
+    return '';
 }
 
 function sanitize(text) {
@@ -557,6 +1222,7 @@ function buildSystemPrompt(
     topic,
     interactionType,
     voiceModifiers,
+    availableTools,
 ) {
     const voice = VOICES[speakerId];
     if (!voice) return `You are ${speakerId}. Speak naturally and concisely.`;
@@ -616,8 +1282,20 @@ function buildSystemPrompt(
         }
     }
 
+    if (availableTools && availableTools.length > 0) {
+        const toolNames = availableTools
+            .map(t => t.function?.name ?? t.name)
+            .join(', ');
+        prompt += `\n═══ AVAILABLE TOOLS ═══\n`;
+        prompt += `You have access to the following tools via OpenClaw. Use them when the conversation would benefit from real data, research, or action.\n`;
+        prompt += `Tools: ${toolNames}\n`;
+        prompt += `- Only invoke a tool if it directly serves the current discussion\n`;
+        prompt += `- Your dialogue response should incorporate or react to tool results naturally\n`;
+        prompt += `- Do NOT mention tool names in your dialogue — speak as yourself, using the information\n`;
+    }
+
     prompt += `\n═══ RULES ═══\n`;
-    prompt += `- Keep your response under 120 characters\n`;
+    prompt += `- Keep your response to 2-3 sentences max. Be substantive.\n`;
     prompt += `- Speak as ${voice.displayName} (${voice.pronouns}) — no stage directions, no asterisks, no quotes\n`;
     prompt += `- Stay in character: ${voice.tone}\n`;
     prompt += `- Respond to what was just said. Don't monologue. Don't repeat yourself.\n`;
@@ -643,12 +1321,12 @@ function buildUserPrompt(topic, turn, maxTurns, speakerName, format) {
         const opener =
             openers[format] ??
             `You're opening this conversation about: "${topic}". Set the tone.`;
-        return `${opener} Under 120 characters.`;
+        return `${opener} 2-3 sentences max.`;
     }
     if (turn === maxTurns - 1) {
-        return `Final turn. Land your point on "${topic}". No loose threads. Under 120 characters.`;
+        return `Final turn. Land your point on "${topic}". No loose threads. 2-3 sentences max.`;
     }
-    return `Respond as ${speakerName}. Stay on: "${topic}". Under 120 characters.`;
+    return `Respond as ${speakerName}. Stay on: "${topic}". 2-3 sentences max.`;
 }
 
 // ─── Orchestration ───
@@ -664,24 +1342,33 @@ async function orchestrateSession(session) {
 
     const affinityMap = await loadAffinityMap();
 
+    // Pre-load tools for each participant
+    const agentToolsMap = {};
+    for (const participant of session.participants) {
+        agentToolsMap[participant] = getAgentTools(participant);
+    }
+
     const voiceModifiersMap = {};
     for (const participant of session.participants) {
         try {
             voiceModifiersMap[participant] =
                 await deriveVoiceModifiers(participant);
         } catch (err) {
-            console.error(
-                `    [voice] Modifier derivation failed for ${participant}:`,
-                err.message,
-            );
+            log.warn('Voice modifier derivation failed', {
+                participant,
+                error: err.message,
+            });
             voiceModifiersMap[participant] = [];
         }
     }
 
-    console.log(
-        `  ▶ Starting ${session.format}: "${session.topic}" (${maxTurns} turns)`,
-    );
-    console.log(`    Participants: ${session.participants.join(', ')}`);
+    log.info('Processing session', {
+        sessionId: session.id,
+        format: session.format,
+        topic: session.topic,
+        maxTurns,
+        participants: session.participants,
+    });
 
     // Mark as running
     await sql`
@@ -699,161 +1386,167 @@ async function orchestrateSession(session) {
             ${`${session.format} started: ${session.topic}`},
             ${`Participants: ${session.participants.join(', ')} | ${maxTurns} turns`},
             ${['conversation', 'started', session.format]},
-            ${JSON.stringify({
+            ${sql.json({
                 sessionId: session.id,
                 format: session.format,
                 participants: session.participants,
                 maxTurns,
-            })}::jsonb
+            })}
         )
     `;
 
-    try {
-        for (let turn = 0; turn < maxTurns; turn++) {
-            const speaker =
-                turn === 0 ?
-                    selectFirstSpeaker(session.participants, session.format)
-                :   selectNextSpeaker(
-                        session.participants,
-                        history[history.length - 1].speaker,
-                        history,
-                        affinityMap,
-                        session.format,
-                    );
+    let abortReason = null;
 
-            const voice = VOICES[speaker];
-            const speakerName = voice?.displayName ?? speaker;
-
-            let interactionType;
-            if (turn > 0) {
-                const lastSpeaker = history[history.length - 1].speaker;
-                const affinity = getAffinityFromMap(
+    for (let turn = 0; turn < maxTurns; turn++) {
+        const speaker =
+            turn === 0 ?
+                selectFirstSpeaker(session.participants, session.format)
+            :   selectNextSpeaker(
+                    session.participants,
+                    history[history.length - 1].speaker,
+                    history,
                     affinityMap,
-                    speaker,
-                    lastSpeaker,
+                    session.format,
                 );
-                interactionType = getInteractionType(affinity);
-            }
 
-            const systemPrompt = buildSystemPrompt(
+        const voice = VOICES[speaker];
+        const speakerName = voice?.displayName ?? speaker;
+
+        let interactionType;
+        if (turn > 0) {
+            const lastSpeaker = history[history.length - 1].speaker;
+            const affinity = getAffinityFromMap(
+                affinityMap,
                 speaker,
-                history,
-                session.format,
-                session.topic,
-                interactionType,
-                voiceModifiersMap[speaker],
+                lastSpeaker,
             );
-            const userPrompt = buildUserPrompt(
-                session.topic,
-                turn,
-                maxTurns,
-                speakerName,
-                session.format,
-            );
+            interactionType = getInteractionType(affinity);
+        }
 
-            const rawDialogue = await llmGenerate(
+        const systemPrompt = buildSystemPrompt(
+            speaker,
+            history,
+            session.format,
+            session.topic,
+            interactionType,
+            voiceModifiersMap[speaker],
+            agentToolsMap[speaker],
+        );
+        const userPrompt = buildUserPrompt(
+            session.topic,
+            turn,
+            maxTurns,
+            speakerName,
+            session.format,
+        );
+
+        const speakerTools = agentToolsMap[speaker] ?? [];
+
+        let rawDialogue;
+        try {
+            rawDialogue = await llmGenerate(
                 [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: userPrompt },
                 ],
                 formatConfig.temperature,
+                speakerTools.length > 0 ? speakerTools : null,
             );
-
-            const dialogue = sanitize(rawDialogue);
-            history.push({ speaker, dialogue, turn });
-
-            // Store turn
-            await sql`
-                INSERT INTO ops_roundtable_turns (session_id, turn_number, speaker, dialogue, metadata)
-                VALUES (${session.id}, ${turn}, ${speaker}, ${dialogue}, ${JSON.stringify({ speakerName })}::jsonb)
-            `;
-
-            // Update turn count
-            await sql`
-                UPDATE ops_roundtable_sessions
-                SET turn_count = ${turn + 1}
-                WHERE id = ${session.id}
-            `;
-
-            // Emit turn event
-            await sql`
-                INSERT INTO ops_agent_events (agent_id, kind, title, tags, metadata)
-                VALUES (
-                    ${speaker},
-                    'conversation_turn',
-                    ${`${speakerName}: ${dialogue}`},
-                    ${['conversation', 'turn', session.format]},
-                    ${JSON.stringify({ sessionId: session.id, turn, dialogue })}::jsonb
-                )
-            `;
-
-            console.log(`    [${turn}] ${speakerName}: ${dialogue}`);
-
-            // Natural delay (3-8 seconds between turns)
-            if (turn < maxTurns - 1) {
-                const delay = 3000 + Math.random() * 5000;
-                await new Promise(resolve => setTimeout(resolve, delay));
-            }
+        } catch (err) {
+            // LLM failed after retries — end conversation gracefully with what we have
+            log.error('LLM failed for speaker', {
+                turn,
+                speaker: speakerName,
+                error: err.message,
+            });
+            abortReason = err.message;
+            break;
         }
 
-        // Mark completed
+        const dialogue = sanitize(rawDialogue);
+        history.push({ speaker, dialogue, turn });
+
+        // Store turn
+        await sql`
+            INSERT INTO ops_roundtable_turns (session_id, turn_number, speaker, dialogue, metadata)
+            VALUES (${session.id}, ${turn}, ${speaker}, ${dialogue}, ${sql.json({ speakerName })})
+        `;
+
+        // Update turn count
         await sql`
             UPDATE ops_roundtable_sessions
-            SET status = 'completed',
-                turn_count = ${history.length},
-                completed_at = NOW()
+            SET turn_count = ${turn + 1}
             WHERE id = ${session.id}
         `;
 
-        // Emit completion event
+        // Emit turn event
         await sql`
-            INSERT INTO ops_agent_events (agent_id, kind, title, summary, tags, metadata)
+            INSERT INTO ops_agent_events (agent_id, kind, title, tags, metadata)
             VALUES (
-                'system',
-                'conversation_completed',
-                ${`${session.format} completed: ${session.topic}`},
-                ${`${history.length} turns`},
-                ${['conversation', 'completed', session.format]},
-                ${JSON.stringify({
-                    sessionId: session.id,
-                    turnCount: history.length,
-                    speakers: [...new Set(history.map(h => h.speaker))],
-                })}::jsonb
+                ${speaker},
+                'conversation_turn',
+                ${`${speakerName}: ${dialogue}`},
+                ${['conversation', 'turn', session.format]},
+                ${sql.json({ sessionId: session.id, turn, dialogue })}
             )
         `;
 
-        console.log(`  ✓ Completed (${history.length} turns)`);
-        return history;
-    } catch (err) {
-        console.error(`  ✗ Failed:`, err.message);
+        log.info('Turn completed', { turn, speaker: speakerName, dialogue });
 
-        const errorMeta = { ...session.metadata, error: err.message };
-        await sql`
-            UPDATE ops_roundtable_sessions
-            SET status = 'failed',
-                completed_at = NOW(),
-                metadata = ${JSON.stringify(errorMeta)}::jsonb
-            WHERE id = ${session.id}
-        `;
-
-        await sql`
-            INSERT INTO ops_agent_events (agent_id, kind, title, summary, tags, metadata)
-            VALUES (
-                'system',
-                'conversation_failed',
-                ${`${session.format} failed: ${session.topic}`},
-                ${err.message},
-                ${['conversation', 'failed', session.format]},
-                ${JSON.stringify({
-                    sessionId: session.id,
-                    error: err.message,
-                    turnsCompleted: history.length,
-                })}::jsonb
-            )
-        `;
-
-        throw err;
+        // Natural delay (3-8 seconds between turns)
+        if (turn < maxTurns - 1) {
+            const delay = 3000 + Math.random() * 5000;
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
     }
+
+    // Determine final status — completed if we got at least 3 turns, failed otherwise
+    const finalStatus =
+        history.length >= 3 || !abortReason ? 'completed' : 'failed';
+
+    await sql`
+        UPDATE ops_roundtable_sessions
+        SET status = ${finalStatus},
+            turn_count = ${history.length},
+            completed_at = NOW(),
+            metadata = ${sql.json(
+                abortReason ?
+                    {
+                        ...session.metadata,
+                        abortReason,
+                        abortedAtTurn: history.length,
+                    }
+                :   (session.metadata ?? {}),
+            )}
+        WHERE id = ${session.id}
+    `;
+
+    await sql`
+        INSERT INTO ops_agent_events (agent_id, kind, title, summary, tags, metadata)
+        VALUES (
+            'system',
+            ${finalStatus === 'completed' ? 'conversation_completed' : 'conversation_failed'},
+            ${`${session.format} ${finalStatus}: ${session.topic}`},
+            ${abortReason ? `${history.length} turns (aborted: ${abortReason})` : `${history.length} turns`},
+            ${['conversation', finalStatus, session.format]},
+            ${sql.json({
+                sessionId: session.id,
+                turnCount: history.length,
+                speakers: [...new Set(history.map(h => h.speaker))],
+                ...(abortReason ? { abortReason } : {}),
+            })}
+        )
+    `;
+
+    log.info('Session completed', {
+        sessionId: session.id,
+        status: finalStatus,
+        turnCount: history.length,
+        maxTurns,
+        speakers: [...new Set(history.map(h => h.speaker))],
+        ...(abortReason ? { abortReason } : {}),
+    });
+    return history;
 }
 
 // ─── Memory Distillation ───
@@ -948,24 +1641,35 @@ Respond with JSON only:
                 { role: 'user', content: promptText },
             ],
             0.3,
+            null, // no tools
+            DISTILL_MODELS, // models optimized for JSON extraction
+            1024, // higher token limit for structured JSON output
         );
     } catch (err) {
-        console.error('  [distiller] LLM extraction failed:', err.message);
+        log.error('LLM extraction failed', { error: err.message });
         return 0;
     }
 
-    let jsonStr = rawResponse.trim();
-    if (jsonStr.startsWith('```')) {
-        jsonStr = jsonStr
-            .replace(/^```(?:json)?\n?/, '')
-            .replace(/\n?```$/, '');
-    }
-
+    // Robust JSON extraction — models sometimes wrap JSON in markdown or add commentary
     let parsed;
     try {
-        parsed = JSON.parse(jsonStr);
+        let jsonStr = rawResponse.trim();
+        // Strip markdown code fences
+        jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/m, '').replace(/\n?\s*```\s*$/m, '');
+        // Try direct parse first
+        try {
+            parsed = JSON.parse(jsonStr);
+        } catch {
+            // Extract the first JSON object from the text
+            const match = jsonStr.match(/\{[\s\S]*\}/);
+            if (match) {
+                parsed = JSON.parse(match[0]);
+            } else {
+                throw new Error('No JSON object found');
+            }
+        }
     } catch {
-        console.error('  [distiller] Failed to parse LLM response as JSON');
+        log.warn('Failed to parse LLM response as JSON', { response: rawResponse.substring(0, 200) });
         return 0;
     }
 
@@ -1044,7 +1748,7 @@ Respond with JSON only:
             `;
             written++;
         } catch (err) {
-            console.error('  [distiller] Memory write failed:', err.message);
+            log.error('Memory write failed', { error: err.message });
         }
     }
 
@@ -1096,19 +1800,22 @@ Respond with JSON only:
                 total_interactions = ${(current.total_interactions ?? 0) + 1},
                 positive_interactions = ${(current.positive_interactions ?? 0) + (clampedDrift > 0 ? 1 : 0)},
                 negative_interactions = ${(current.negative_interactions ?? 0) + (clampedDrift < 0 ? 1 : 0)},
-                drift_log = ${JSON.stringify(newLog)}::jsonb
+                drift_log = ${sql.json(newLog)}
             WHERE agent_a = ${a} AND agent_b = ${b}
         `;
 
-        console.log(
-            `  [distiller] ${a} ↔ ${b}: ${currentAffinity.toFixed(2)} → ${newAffinity.toFixed(2)} (${clampedDrift > 0 ? '+' : ''}${clampedDrift.toFixed(3)}: ${d.reason})`,
-        );
+        log.debug('Relationship drift applied', {
+            agentA: a,
+            agentB: b,
+            fromAffinity: currentAffinity,
+            toAffinity: newAffinity,
+            drift: clampedDrift,
+            reason: d.reason,
+        });
     }
 
     if (written > 0) {
-        console.log(
-            `  [distiller] Wrote ${written} memories from session ${sessionId}`,
-        );
+        log.info('Memories written', { count: written, sessionId });
     }
 
     // Convert action items to proposals
@@ -1140,7 +1847,7 @@ Respond with JSON only:
                         ${item.agent_id},
                         ${item.title.substring(0, 100)},
                         ${`Action item from ${format} conversation`},
-                        ${JSON.stringify([{ kind: stepKind, payload: {} }])}::jsonb,
+                        ${sql.json([{ kind: stepKind, payload: {} }])},
                         'conversation',
                         ${`action_item:${sessionId}:${proposalsCreated}`},
                         'pending'
@@ -1148,17 +1855,16 @@ Respond with JSON only:
                 `;
                 proposalsCreated++;
             } catch (err) {
-                console.error(
-                    '  [distiller] Action item proposal failed:',
-                    err.message,
-                );
+                log.error('Action item proposal failed', {
+                    error: err.message,
+                });
             }
         }
 
         if (proposalsCreated > 0) {
-            console.log(
-                `  [distiller] Created ${proposalsCreated} proposals from action items`,
-            );
+            log.info('Proposals created from action items', {
+                count: proposalsCreated,
+            });
         }
     }
 
@@ -1199,25 +1905,27 @@ async function pollAndProcess() {
         try {
             await distillMemories(session.id, history, session.format);
         } catch (distillErr) {
-            console.error(
-                '  [worker] Memory distillation failed:',
-                distillErr.message,
-            );
+            log.error('Memory distillation failed', {
+                error: distillErr.message,
+            });
         }
     } catch (err) {
-        console.error('[worker] Orchestration failed:', err.message);
+        log.error('Orchestration failed', { error: err.message });
     }
 }
 
 // ─── Main ───
 
 async function main() {
-    console.log('🎙️  Roundtable Worker started');
-    console.log(`   Poll interval: ${POLL_INTERVAL_MS / 1000}s`);
-    console.log(`   LLM model: ${LLM_MODEL}`);
-    console.log(`   Database: ${process.env.DATABASE_URL ? '✓' : '✗'}`);
-    console.log(`   OpenRouter API key: ${OPENROUTER_API_KEY ? '✓' : '✗'}`);
-    console.log('');
+    log.info('Roundtable Worker started', {
+        pollIntervalSec: POLL_INTERVAL_MS / 1000,
+        ollama: OLLAMA_BASE_URL || 'disabled',
+        ollamaModels: OLLAMA_MODELS,
+        dialogueModels: LLM_MODELS,
+        distillModels: DISTILL_MODELS,
+        database: !!process.env.DATABASE_URL,
+        openrouterKey: !!OPENROUTER_API_KEY,
+    });
 
     await pollAndProcess();
 
@@ -1225,12 +1933,12 @@ async function main() {
         try {
             await pollAndProcess();
         } catch (err) {
-            console.error('[worker] Unexpected error:', err);
+            log.error('Unexpected error in poll loop', { error: err });
         }
     }, POLL_INTERVAL_MS);
 }
 
 main().catch(err => {
-    console.error('Fatal error:', err);
+    log.fatal('Fatal error', { error: err });
     process.exit(1);
 });

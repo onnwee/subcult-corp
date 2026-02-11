@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS ops_agent_registry (
   agent_id TEXT PRIMARY KEY,
   display_name TEXT NOT NULL UNIQUE,
   role TEXT NOT NULL
-    CHECK (role IN ('coordinator', 'analyst', 'protector', 'innovator', 'executor', 'dispatcher')),
+    CHECK (role IN ('coordinator', 'analyst', 'protector', 'innovator', 'executor', 'dispatcher', 'operations', 'sovereign')),
   system_directive TEXT NOT NULL,
   soul_summary TEXT,
   tone TEXT,

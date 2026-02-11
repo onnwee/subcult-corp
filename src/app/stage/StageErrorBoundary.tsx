@@ -13,8 +13,8 @@ function ErrorFallback({
 }) {
     const message = error instanceof Error ? error.message : String(error);
     return (
-        <div className='rounded-lg border border-red-900/50 bg-red-950/20 p-4'>
-            <div className='flex items-center gap-2 text-red-400 mb-2'>
+        <div className='rounded-lg border border-accent-red/50 bg-accent-red/20 p-4'>
+            <div className='flex items-center gap-2 text-accent-red mb-2'>
                 <svg
                     className='h-4 w-4'
                     fill='none'
@@ -32,10 +32,10 @@ function ErrorFallback({
                     Something went wrong
                 </span>
             </div>
-            <p className='text-xs text-red-300/70 mb-3 font-mono'>{message}</p>
+            <p className='text-xs text-accent-red/70 mb-3 font-mono'>{message}</p>
             <button
                 onClick={resetErrorBoundary}
-                className='rounded bg-red-900/50 px-3 py-1 text-xs text-red-300 transition-colors hover:bg-red-900/70'
+                className='rounded bg-accent-red/50 px-3 py-1 text-xs text-accent-red transition-colors hover:bg-accent-red/70'
             >
                 Retry
             </button>
@@ -73,14 +73,14 @@ export function SectionErrorBoundary({
             }) => (
                 <div className='rounded-lg border border-zinc-800 bg-zinc-900/50 p-4'>
                     <p className='text-sm text-zinc-400 mb-1'>
-                        <span className='text-red-400'>Error</span> in {label}
+                        <span className='text-accent-red'>Error</span> in {label}
                     </p>
                     <p className='text-xs text-zinc-500 font-mono mb-2'>
                         {error instanceof Error ? error.message : String(error)}
                     </p>
                     <button
                         onClick={resetErrorBoundary}
-                        className='text-xs text-cyan-400 hover:text-cyan-300'
+                        className='text-xs text-accent hover:text-accent/80'
                     >
                         Retry
                     </button>

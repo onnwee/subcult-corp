@@ -1,0 +1,78 @@
+# ─── SUBCULT-CORP — Docker Compose ───
+services:
+    # ── PostgreSQL ──
+    postgres:
+        image: postgres:16-alpine
+        container_name: subcult-postgres
+        restart: unless-stopped
+        env_file:
+            - .env.local
+        environment:
+            POSTGRES_USER: subcult
+            POSTGRES_DB: subcult_ops
+        ports:
+            - '127.0.0.1:5433:5432'
+        volumes:
+            - pgdata:/var/lib/postgresql/data
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U subcult -d subcult_ops']
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        networks:
+            - internal
+
+    # ── OpenClaw Gateway Bridge — disabled ──
+    # openclaw-host-relay and openclaw-bridge removed.
+    # Re-enable when OpenClaw gateway is needed for skills execution.
+
+    # ── Next.js App ──
+    app:
+        build: .
+        container_name: subcult-app
+        restart: unless-stopped
+        depends_on:
+            postgres:
+                condition: service_healthy
+        env_file:
+            - .env.local
+        networks:
+            - web
+            - internal
+
+    # ── Roundtable Conversation Worker ──
+    roundtable-worker:
+        build: .
+        container_name: subcult-roundtable
+        restart: unless-stopped
+        command: ['node', 'scripts/roundtable-worker/worker.mjs']
+        depends_on:
+            postgres:
+                condition: service_healthy
+        env_file:
+            - .env.local
+        networks:
+            - internal
+
+    # ── Initiative Worker ──
+    initiative-worker:
+        build: .
+        container_name: subcult-initiative
+        restart: unless-stopped
+        command: ['node', 'scripts/initiative-worker/worker.mjs']
+        depends_on:
+            postgres:
+                condition: service_healthy
+        env_file:
+            - .env.local
+        networks:
+            - internal
+
+volumes:
+    pgdata:
+
+networks:
+    web:
+        external: true
+    internal:
+        driver: bridge

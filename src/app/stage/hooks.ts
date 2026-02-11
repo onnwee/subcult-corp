@@ -187,17 +187,32 @@ export function useMissionEvents(missionId: string | null) {
 export function useConversations(limit = 10) {
     const [sessions, setSessions] = useState<RoundtableSession[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        fetchJson<{ sessions: RoundtableSession[] }>(
-            `/api/ops/roundtable?limit=${limit}`,
-        ).then(data => {
+    const fetchSessions = useCallback(async () => {
+        try {
+            const data = await fetchJson<{ sessions: RoundtableSession[] }>(
+                `/api/ops/roundtable?limit=${limit}`,
+            );
             setSessions(data.sessions);
+            setError(null);
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
             setLoading(false);
-        });
+        }
     }, [limit]);
 
-    return { sessions, loading };
+    useEffect(() => {
+        fetchSessions();
+    }, [fetchSessions]);
+
+    // Poll every 10 seconds
+    useInterval(() => {
+        fetchSessions();
+    }, 10000);
+
+    return { sessions, loading, error };
 }
 
 // ─── useConversationTurns — fetch turns for a session ───

@@ -112,7 +112,7 @@ export function SignalFeed({
 
     if (error) {
         return (
-            <div className='rounded-lg border border-red-900/50 p-4 text-sm text-red-400'>
+            <div className='rounded-lg border border-accent-red/50 p-4 text-sm text-red-400'>
                 Failed to load events: {error}
             </div>
         );

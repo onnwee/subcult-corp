@@ -7,6 +7,9 @@
 
 import { execSync } from 'child_process';
 import { existsSync } from 'fs';
+import { createLogger } from '../lib/logger.mjs';
+
+const log = createLogger({ service: 'seed-all' });
 
 const SCRIPTS_DIR = new URL('./', import.meta.url).pathname;
 
@@ -28,6 +31,7 @@ const scripts = [
     { file: 'seed-relationships.mjs', desc: 'Agent relationships (10 pairs)' },
 ];
 
+log.info('Starting seed-all');
 console.log('╔══════════════════════════════════════╗');
 console.log('║     SUBCULT OPS — Seed All Data      ║');
 console.log('╚══════════════════════════════════════╝\n');
@@ -39,13 +43,13 @@ for (const { file, desc } of scripts) {
     const path = `${SCRIPTS_DIR}${file}`;
 
     if (!existsSync(path)) {
-        console.error(`\n✗ ${file} not found — skipping`);
+        log.error('Script not found, skipping', { file });
         errors++;
         continue;
     }
 
     console.log(`\n── ${desc} ──`);
-    console.log(`   Running: ${file}`);
+    log.info('Running seed script', { file, desc });
 
     try {
         execSync(`node "${path}"`, {
@@ -54,7 +58,7 @@ for (const { file, desc } of scripts) {
         });
         succeeded++;
     } catch {
-        console.error(`\n✗ ${file} failed`);
+        log.error('Seed script failed', { file });
         errors++;
     }
 }
@@ -64,3 +68,5 @@ console.log(`  Seeds completed: ${succeeded}/${scripts.length}`);
 if (errors > 0) console.log(`  Errors: ${errors}`);
 console.log('══════════════════════════════════════');
 console.log('\nNext step: node scripts/go-live/verify-launch.mjs');
+
+log.info('Seed-all completed', { succeeded, errors, total: scripts.length });

@@ -7,10 +7,10 @@ import { MissionsListSkeleton } from './StageSkeletons';
 import type { Mission, MissionStep } from '@/lib/types';
 
 const STATUS_STYLES: Record<string, string> = {
-    approved: 'bg-blue-900/30 text-blue-400 border-blue-400/30',
-    running: 'bg-yellow-900/30 text-yellow-400 border-yellow-400/30',
-    succeeded: 'bg-green-900/30 text-green-400 border-green-400/30',
-    failed: 'bg-red-900/30 text-red-400 border-red-400/30',
+    approved: 'bg-accent-blue/30 text-accent-blue border-accent-blue/30',
+    running: 'bg-accent-yellow/30 text-accent-yellow border-accent-yellow/30',
+    succeeded: 'bg-accent-green/30 text-accent-green border-accent-green/30',
+    failed: 'bg-accent-red/30 text-accent-red border-accent-red/30',
     cancelled: 'bg-zinc-800 text-zinc-500 border-zinc-700',
 };
 
@@ -24,9 +24,9 @@ const STATUS_ICONS: Record<string, string> = {
 
 const STEP_STATUS_DOT: Record<string, string> = {
     queued: 'bg-zinc-500',
-    running: 'bg-yellow-400 animate-pulse',
-    succeeded: 'bg-green-400',
-    failed: 'bg-red-400',
+    running: 'bg-accent-yellow animate-pulse',
+    succeeded: 'bg-accent-green',
+    failed: 'bg-accent-red',
     skipped: 'bg-zinc-600',
 };
 
@@ -140,7 +140,7 @@ function MissionCard({
                     </div>
 
                     {mission.failure_reason && (
-                        <div className='rounded bg-red-950/20 border border-red-900/30 px-3 py-2 text-xs text-red-400'>
+                        <div className='rounded bg-accent-red/20 border border-accent-red/30 px-3 py-2 text-xs text-accent-red'>
                             {mission.failure_reason}
                         </div>
                     )}

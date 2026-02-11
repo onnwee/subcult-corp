@@ -4,7 +4,11 @@
 CREATE TABLE IF NOT EXISTS ops_roundtable_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   format TEXT NOT NULL
-    CHECK (format IN ('standup', 'debate', 'watercooler')),
+    CHECK (format IN (
+      'standup', 'debate', 'watercooler', 'checkin', 'triage', 'planning',
+      'deep_dive', 'strategy', 'writing_room', 'brainstorm', 'cross_exam',
+      'risk_review', 'content_review', 'reframe', 'retro', 'shipping'
+    )),
   topic TEXT NOT NULL,
   participants TEXT[] NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending'

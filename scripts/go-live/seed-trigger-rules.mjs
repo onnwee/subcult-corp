@@ -3,10 +3,13 @@
 
 import postgres from 'postgres';
 import dotenv from 'dotenv';
+import { createLogger } from '../lib/logger.mjs';
+
 dotenv.config({ path: ['.env.local', '.env'] });
+const log = createLogger({ service: 'seed-trigger-rules' });
 
 if (!process.env.DATABASE_URL) {
-    console.error('Missing DATABASE_URL');
+    log.fatal('Missing DATABASE_URL');
     process.exit(1);
 }
 const sql = postgres(process.env.DATABASE_URL);
@@ -117,13 +120,13 @@ const triggers = [
 ];
 
 async function seed() {
-    console.log('Seeding ops_trigger_rules...');
+    log.info('Seeding ops_trigger_rules');
 
     // Clear existing rules
     try {
         await sql`DELETE FROM ops_trigger_rules WHERE TRUE`;
     } catch (err) {
-        console.error('  ✗ Failed to clear existing rules:', err.message);
+        log.error('Failed to clear existing rules', { error: err });
     }
 
     for (const trigger of triggers) {
@@ -133,20 +136,20 @@ async function seed() {
                 VALUES (
                     ${trigger.name},
                     ${trigger.trigger_event},
-                    ${JSON.stringify(trigger.conditions)}::jsonb,
-                    ${JSON.stringify(trigger.action_config)}::jsonb,
+                    ${sql.json(trigger.conditions)},
+                    ${sql.json(trigger.action_config)},
                     ${trigger.cooldown_minutes},
                     ${trigger.enabled}
                 )
             `;
-            console.log(`  ✓ ${trigger.name}`);
+            log.info('Seeded trigger', { name: trigger.name });
         } catch (err) {
-            console.error(`  ✗ ${trigger.name}: ${err.message}`);
+            log.error('Seed failed', { name: trigger.name, error: err });
         }
     }
 
-    console.log(`Done. Seeded ${triggers.length} trigger rules.`);
+    log.info('Done', { count: triggers.length });
     await sql.end();
 }
 
-seed().catch(console.error);
+seed().catch(err => log.fatal('Seed failed', { error: err }));

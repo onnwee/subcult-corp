@@ -6,10 +6,13 @@
 
 import postgres from 'postgres';
 import dotenv from 'dotenv';
+import { createLogger } from '../lib/logger.mjs';
+
 dotenv.config({ path: ['.env.local', '.env'] });
+const log = createLogger({ service: 'seed-proactive-triggers' });
 
 if (!process.env.DATABASE_URL) {
-    console.error('Missing DATABASE_URL');
+    log.fatal('Missing DATABASE_URL');
     process.exit(1);
 }
 const sql = postgres(process.env.DATABASE_URL);
@@ -129,7 +132,7 @@ const proactiveTriggers = [
 ];
 
 async function seed() {
-    console.log('Seeding proactive trigger rules...\n');
+    log.info('Seeding proactive trigger rules');
 
     let inserted = 0;
     let skipped = 0;
@@ -141,7 +144,7 @@ async function seed() {
         `;
 
         if (existing) {
-            console.log(`  ⊘ ${trigger.name} (already exists, skipping)`);
+            log.info('Skipped existing trigger', { name: trigger.name });
             skipped++;
             continue;
         }
@@ -152,27 +155,29 @@ async function seed() {
                 VALUES (
                     ${trigger.name},
                     ${trigger.trigger_event},
-                    ${JSON.stringify(trigger.conditions)}::jsonb,
-                    ${JSON.stringify(trigger.action_config)}::jsonb,
+                    ${sql.json(trigger.conditions)},
+                    ${sql.json(trigger.action_config)},
                     ${trigger.cooldown_minutes},
                     ${trigger.enabled}
                 )
             `;
-            console.log(
-                `  ✓ ${trigger.name} (cooldown: ${trigger.cooldown_minutes}m, enabled: ${trigger.enabled})`,
-            );
+            log.info('Seeded trigger', {
+                name: trigger.name,
+                cooldown_minutes: trigger.cooldown_minutes,
+                enabled: trigger.enabled,
+            });
             inserted++;
         } catch (err) {
-            console.error(`  ✗ ${trigger.name}: ${err.message}`);
+            log.error('Seed failed', { name: trigger.name, error: err });
         }
     }
 
-    console.log(`\nDone. Inserted ${inserted}, skipped ${skipped} existing.`);
-    console.log('Tip: Enable individually via ops_policy or SQL when ready.');
+    log.info('Done', { inserted, skipped });
+    log.info('Enable individually via ops_policy or SQL when ready');
     await sql.end();
 }
 
 seed().catch(err => {
-    console.error('Seed failed:', err);
+    log.fatal('Seed failed', { error: err });
     process.exit(1);
 });

@@ -1,19 +1,15 @@
-// OfficeRoom — pixel art cyberpunk office with 3 agents
-// Visual candy: day/dusk/night sky, agent behavior states, live whiteboard metrics
+// OfficeRoom — pixel art cyberpunk office with 6 agents
+// Real-time data: speech bubbles from conversations, behavior tied to system state
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useTimeOfDay, useInterval, useSystemStats } from './hooks';
+import { useState, useEffect, useMemo } from 'react';
+import { useTimeOfDay, useInterval, useSystemStats, useConversations } from './hooks';
 import { AGENTS } from '@/lib/agents';
+import type { AgentId } from '@/lib/types';
 
 // ─── Types ───
 
-type AgentBehavior =
-    | 'working'
-    | 'chatting'
-    | 'coffee'
-    | 'celebrating'
-    | 'walking';
+type AgentBehavior = 'working' | 'chatting' | 'coffee' | 'celebrating' | 'walking' | 'thinking';
 
 interface OfficeAgent {
     id: string;
@@ -25,58 +21,27 @@ interface OfficeAgent {
     behavior: AgentBehavior;
     targetX: number;
     frame: number;
+    speechBubble?: string;
+    speechTick: number; // counter for auto-clearing speech
 }
 
 // ─── Constants ───
 
 const CANVAS_W = 800;
-const CANVAS_H = 320;
+const CANVAS_H = 380;
 
-// Skin tones for visual variety
 const SKIN_TONES: Record<string, string> = {
-    chora: '#f0d0b0',
-    subrosa: '#e8c8a0',
-    thaum: '#d4a880',
-    praxis: '#e8d0a0',
-    mux: '#d8c0a8',
+    chora: '#f0d0b0', subrosa: '#e8c8a0', thaum: '#d4a880',
+    praxis: '#e8d0a0', mux: '#d8c0a8', primus: '#c8b090',
 };
 
 const AGENT_CONFIGS = [
-    {
-        id: 'chora',
-        name: AGENTS.chora.displayName,
-        color: AGENTS.chora.color,
-        skinColor: SKIN_TONES.chora,
-        startX: 120,
-    },
-    {
-        id: 'subrosa',
-        name: AGENTS.subrosa.displayName,
-        color: AGENTS.subrosa.color,
-        skinColor: SKIN_TONES.subrosa,
-        startX: 360,
-    },
-    {
-        id: 'thaum',
-        name: AGENTS.thaum.displayName,
-        color: AGENTS.thaum.color,
-        skinColor: SKIN_TONES.thaum,
-        startX: 540,
-    },
-    {
-        id: 'mux',
-        name: AGENTS.mux.displayName,
-        color: AGENTS.mux.color,
-        skinColor: SKIN_TONES.mux,
-        startX: 660,
-    },
-    {
-        id: 'praxis',
-        name: AGENTS.praxis.displayName,
-        color: AGENTS.praxis.color,
-        skinColor: SKIN_TONES.praxis,
-        startX: 720,
-    },
+    { id: 'chora', name: AGENTS.chora.displayName, color: AGENTS.chora.color, skinColor: SKIN_TONES.chora, startX: 120, deskX: 90 },
+    { id: 'subrosa', name: AGENTS.subrosa.displayName, color: AGENTS.subrosa.color, skinColor: SKIN_TONES.subrosa, startX: 360, deskX: 210 },
+    { id: 'thaum', name: AGENTS.thaum.displayName, color: AGENTS.thaum.color, skinColor: SKIN_TONES.thaum, startX: 540, deskX: 330 },
+    { id: 'primus', name: AGENTS.primus.displayName, color: AGENTS.primus.color, skinColor: SKIN_TONES.primus, startX: 240, deskX: 510 },
+    { id: 'mux', name: AGENTS.mux.displayName, color: AGENTS.mux.color, skinColor: SKIN_TONES.mux, startX: 660, deskX: 630 },
+    { id: 'praxis', name: AGENTS.praxis.displayName, color: AGENTS.praxis.color, skinColor: SKIN_TONES.praxis, startX: 720, deskX: 750 },
 ];
 
 const SKY_COLORS = {
@@ -85,27 +50,59 @@ const SKY_COLORS = {
     night: { from: '#0a0a1a', to: '#050510' },
 };
 
-const BEHAVIORS: AgentBehavior[] = [
-    'working',
-    'chatting',
-    'coffee',
-    'celebrating',
-    'walking',
-];
+const BEHAVIORS: AgentBehavior[] = ['working', 'chatting', 'coffee', 'celebrating', 'walking', 'thinking'];
 
 const BEHAVIOR_EMOJIS: Record<AgentBehavior, string> = {
-    working: '💻',
-    chatting: '💬',
-    coffee: '☕',
-    celebrating: '🎉',
-    walking: '🚶',
+    working: '💻', chatting: '💬', coffee: '☕',
+    celebrating: '🎉', walking: '🚶', thinking: '💭',
 };
 
-// ─── Agent Pixel Art (SVG-based for crispness) ───
+// ─── Speech Bubble ───
+
+function SpeechBubble({ text, color, x, y }: { text: string; color: string; x: number; y: number }) {
+    const maxWidth = 120;
+    const lines = [];
+    const words = text.split(' ');
+    let current = '';
+    for (const word of words) {
+        if ((current + ' ' + word).length > 20) {
+            lines.push(current);
+            current = word;
+        } else {
+            current = current ? current + ' ' + word : word;
+        }
+    }
+    if (current) lines.push(current);
+    const lineCount = Math.min(lines.length, 3);
+    const height = lineCount * 11 + 10;
+
+    return (
+        <g transform={`translate(${x}, ${y})`} opacity={0.95}>
+            {/* Bubble */}
+            <rect x={-maxWidth / 2} y={-height - 8} width={maxWidth} height={height} rx={4} fill='#1a1a2e' stroke={color} strokeWidth={0.8} opacity={0.92} />
+            {/* Tail */}
+            <polygon points={`-4,${-8} 4,${-8} 0,0`} fill='#1a1a2e' stroke={color} strokeWidth={0.8} />
+            <rect x={-5} y={-9} width={10} height={3} fill='#1a1a2e' />
+            {/* Text */}
+            {lines.slice(0, 3).map((line, i) => (
+                <text
+                    key={i}
+                    x={0} y={-height + 4 + (i + 1) * 11}
+                    textAnchor='middle' fontSize={8}
+                    fill='#d4d4d8' fontFamily='monospace'
+                >
+                    {line.length > 22 ? line.slice(0, 20) + '…' : line}
+                </text>
+            ))}
+        </g>
+    );
+}
+
+// ─── Agent Pixel Art (SVG-based) ───
 
 function PixelAgent({ agent }: { agent: OfficeAgent }) {
-    const bobOffset =
-        agent.behavior === 'walking' ? Math.sin(agent.frame * 0.5) * 2 : 0;
+    const bobOffset = agent.behavior === 'walking' ? Math.sin(agent.frame * 0.5) * 2 :
+                      agent.behavior === 'thinking' ? Math.sin(agent.frame * 0.2) * 0.5 : 0;
     const isWalking = agent.behavior === 'walking';
     const legOffset = isWalking ? Math.sin(agent.frame * 0.8) * 3 : 0;
 
@@ -114,135 +111,66 @@ function PixelAgent({ agent }: { agent: OfficeAgent }) {
             {/* Shadow */}
             <ellipse cx={0} cy={36} rx={10} ry={3} fill='rgba(0,0,0,0.3)' />
 
+            {/* Glow under agent when active */}
+            {(agent.behavior === 'chatting' || agent.behavior === 'celebrating') && (
+                <ellipse cx={0} cy={36} rx={14} ry={4} fill={agent.color} opacity={0.15}>
+                    <animate attributeName='opacity' values='0.15;0.08;0.15' dur='2s' repeatCount='indefinite' />
+                </ellipse>
+            )}
+
             {/* Body */}
-            <rect
-                x={-6}
-                y={8}
-                width={12}
-                height={16}
-                rx={2}
-                fill={agent.color}
-            />
+            <rect x={-6} y={8} width={12} height={16} rx={2} fill={agent.color} />
 
             {/* Head */}
-            <rect
-                x={-5}
-                y={-2}
-                width={10}
-                height={10}
-                rx={2}
-                fill={agent.skinColor}
-            />
+            <rect x={-5} y={-2} width={10} height={10} rx={2} fill={agent.skinColor} />
 
             {/* Eyes */}
-            <rect x={-3} y={1} width={2} height={2} rx={0.5} fill='#1a1a2e' />
-            <rect x={1} y={1} width={2} height={2} rx={0.5} fill='#1a1a2e' />
+            {agent.behavior === 'thinking' ? (
+                <>
+                    <line x1={-3} y1={2} x2={-1} y2={2} stroke='#1a1a2e' strokeWidth={1.5} strokeLinecap='round' />
+                    <line x1={1} y1={2} x2={3} y2={2} stroke='#1a1a2e' strokeWidth={1.5} strokeLinecap='round' />
+                </>
+            ) : (
+                <>
+                    <rect x={-3} y={1} width={2} height={2} rx={0.5} fill='#1a1a2e' />
+                    <rect x={1} y={1} width={2} height={2} rx={0.5} fill='#1a1a2e' />
+                </>
+            )}
 
             {/* Hair/hat accent */}
-            <rect
-                x={-5}
-                y={-3}
-                width={10}
-                height={3}
-                rx={1}
-                fill={agent.color}
-                opacity={0.7}
-            />
+            <rect x={-5} y={-3} width={10} height={3} rx={1} fill={agent.color} opacity={0.7} />
 
             {/* Arms */}
-            {agent.behavior === 'celebrating' ?
+            {agent.behavior === 'celebrating' ? (
                 <>
-                    <line
-                        x1={-6}
-                        y1={12}
-                        x2={-12}
-                        y2={4}
-                        stroke={agent.skinColor}
-                        strokeWidth={2.5}
-                        strokeLinecap='round'
-                    />
-                    <line
-                        x1={6}
-                        y1={12}
-                        x2={12}
-                        y2={4}
-                        stroke={agent.skinColor}
-                        strokeWidth={2.5}
-                        strokeLinecap='round'
-                    />
+                    <line x1={-6} y1={12} x2={-12} y2={4} stroke={agent.skinColor} strokeWidth={2.5} strokeLinecap='round' />
+                    <line x1={6} y1={12} x2={12} y2={4} stroke={agent.skinColor} strokeWidth={2.5} strokeLinecap='round' />
                 </>
-            : agent.behavior === 'coffee' ?
+            ) : agent.behavior === 'coffee' ? (
                 <>
-                    <line
-                        x1={-6}
-                        y1={12}
-                        x2={-10}
-                        y2={16}
-                        stroke={agent.skinColor}
-                        strokeWidth={2.5}
-                        strokeLinecap='round'
-                    />
-                    <line
-                        x1={6}
-                        y1={12}
-                        x2={10}
-                        y2={10}
-                        stroke={agent.skinColor}
-                        strokeWidth={2.5}
-                        strokeLinecap='round'
-                    />
-                    <rect
-                        x={9}
-                        y={8}
-                        width={4}
-                        height={5}
-                        rx={1}
-                        fill='#8B4513'
-                    />
+                    <line x1={-6} y1={12} x2={-10} y2={16} stroke={agent.skinColor} strokeWidth={2.5} strokeLinecap='round' />
+                    <line x1={6} y1={12} x2={10} y2={10} stroke={agent.skinColor} strokeWidth={2.5} strokeLinecap='round' />
+                    <rect x={9} y={8} width={4} height={5} rx={1} fill='#8B4513' />
+                    {/* Steam from coffee */}
+                    <path d={`M10,7 Q12,${4 - Math.sin(agent.frame * 0.3)} 11,2`} fill='none' stroke='#fff' strokeWidth={0.5} opacity={0.3} />
                 </>
-            :   <>
-                    <line
-                        x1={-6}
-                        y1={12}
-                        x2={-10}
-                        y2={18}
-                        stroke={agent.skinColor}
-                        strokeWidth={2.5}
-                        strokeLinecap='round'
-                    />
-                    <line
-                        x1={6}
-                        y1={12}
-                        x2={10}
-                        y2={18}
-                        stroke={agent.skinColor}
-                        strokeWidth={2.5}
-                        strokeLinecap='round'
-                    />
+            ) : agent.behavior === 'thinking' ? (
+                <>
+                    <line x1={-6} y1={12} x2={-10} y2={16} stroke={agent.skinColor} strokeWidth={2.5} strokeLinecap='round' />
+                    <line x1={6} y1={12} x2={4} y2={6} stroke={agent.skinColor} strokeWidth={2.5} strokeLinecap='round' />
+                    {/* Hand on chin */}
+                    <circle cx={4} cy={5} r={1.5} fill={agent.skinColor} />
                 </>
-            }
+            ) : (
+                <>
+                    <line x1={-6} y1={12} x2={-10} y2={18} stroke={agent.skinColor} strokeWidth={2.5} strokeLinecap='round' />
+                    <line x1={6} y1={12} x2={10} y2={18} stroke={agent.skinColor} strokeWidth={2.5} strokeLinecap='round' />
+                </>
+            )}
 
             {/* Legs */}
-            <line
-                x1={-3}
-                y1={24}
-                x2={-3 + legOffset}
-                y2={34}
-                stroke={agent.color}
-                strokeWidth={2.5}
-                strokeLinecap='round'
-                opacity={0.8}
-            />
-            <line
-                x1={3}
-                y1={24}
-                x2={3 - legOffset}
-                y2={34}
-                stroke={agent.color}
-                strokeWidth={2.5}
-                strokeLinecap='round'
-                opacity={0.8}
-            />
+            <line x1={-3} y1={24} x2={-3 + legOffset} y2={34} stroke={agent.color} strokeWidth={2.5} strokeLinecap='round' opacity={0.8} />
+            <line x1={3} y1={24} x2={3 - legOffset} y2={34} stroke={agent.color} strokeWidth={2.5} strokeLinecap='round' opacity={0.8} />
 
             {/* Behavior indicator */}
             <text x={0} y={-10} textAnchor='middle' fontSize={10}>
@@ -250,17 +178,14 @@ function PixelAgent({ agent }: { agent: OfficeAgent }) {
             </text>
 
             {/* Name label */}
-            <text
-                x={0}
-                y={46}
-                textAnchor='middle'
-                fontSize={8}
-                fill={agent.color}
-                fontFamily='monospace'
-                fontWeight='bold'
-            >
+            <text x={0} y={46} textAnchor='middle' fontSize={8} fill={agent.color} fontFamily='monospace' fontWeight='bold'>
                 {agent.name}
             </text>
+
+            {/* Speech bubble */}
+            {agent.speechBubble && (
+                <SpeechBubble text={agent.speechBubble} color={agent.color} x={0} y={-18} />
+            )}
         </g>
     );
 }
@@ -268,229 +193,195 @@ function PixelAgent({ agent }: { agent: OfficeAgent }) {
 // ─── Office Furniture ───
 
 function OfficeFurniture({ period }: { period: 'day' | 'dusk' | 'night' }) {
-    const floorY = 280;
-    const wallColor =
-        period === 'night' ? '#12121a'
-        : period === 'dusk' ? '#1a1425'
-        : '#161625';
+    const floorY = 300;
+    const wallColor = period === 'night' ? '#12121a' : period === 'dusk' ? '#1a1425' : '#161625';
     const deskColor = period === 'night' ? '#2a2a3a' : '#333345';
     const screenGlow = period === 'night' ? 0.8 : 0.5;
 
     return (
         <>
             {/* Floor */}
-            <rect
-                x={0}
-                y={floorY}
-                width={CANVAS_W}
-                height={40}
-                fill='#1a1a2e'
-            />
-            <line
-                x1={0}
-                y1={floorY}
-                x2={CANVAS_W}
-                y2={floorY}
-                stroke='#2a2a4a'
-                strokeWidth={1}
-            />
+            <rect x={0} y={floorY} width={CANVAS_W} height={80} fill='#1a1a2e' />
+            <line x1={0} y1={floorY} x2={CANVAS_W} y2={floorY} stroke='#2a2a4a' strokeWidth={1} />
+            {/* Floor grid lines for depth */}
+            {[200, 400, 600].map(x => (
+                <line key={x} x1={x} y1={floorY} x2={x} y2={floorY + 80} stroke='#1e1e30' strokeWidth={0.5} />
+            ))}
 
             {/* Back wall */}
-            <rect x={0} y={80} width={CANVAS_W} height={200} fill={wallColor} />
+            <rect x={0} y={100} width={CANVAS_W} height={200} fill={wallColor} />
 
-            {/* Window */}
-            <rect
-                x={30}
-                y={100}
-                width={100}
-                height={80}
-                rx={2}
-                fill='none'
-                stroke='#3a3a5a'
-                strokeWidth={2}
-            />
-            <rect
-                x={32}
-                y={102}
-                width={96}
-                height={76}
-                rx={1}
-                fill={`url(#skyGradient)`}
-                opacity={0.4}
-            />
+            {/* Window — larger */}
+            <rect x={20} y={110} width={120} height={90} rx={2} fill='none' stroke='#3a3a5a' strokeWidth={2} />
+            <rect x={22} y={112} width={116} height={86} rx={1} fill='url(#skyGradient)' opacity={0.4} />
+            {/* Window cross bars */}
+            <line x1={80} y1={112} x2={80} y2={198} stroke='#3a3a5a' strokeWidth={1} />
+            <line x1={22} y1={155} x2={138} y2={155} stroke='#3a3a5a' strokeWidth={1} />
 
             {/* Desks */}
-            {[90, 330, 510, 630, 750].map((dx, i) => (
+            {AGENT_CONFIGS.map((cfg, i) => (
                 <g key={i}>
-                    <rect
-                        x={dx - 25}
-                        y={240}
-                        width={50}
-                        height={4}
-                        rx={1}
-                        fill={deskColor}
-                    />
-                    <rect
-                        x={dx - 20}
-                        y={244}
-                        width={4}
-                        height={36}
-                        fill={deskColor}
-                    />
-                    <rect
-                        x={dx + 16}
-                        y={244}
-                        width={4}
-                        height={36}
-                        fill={deskColor}
-                    />
+                    <rect x={cfg.deskX - 25} y={260} width={50} height={4} rx={1} fill={deskColor} />
+                    <rect x={cfg.deskX - 20} y={264} width={4} height={36} fill={deskColor} />
+                    <rect x={cfg.deskX + 16} y={264} width={4} height={36} fill={deskColor} />
                     {/* Monitor */}
-                    <rect
-                        x={dx - 12}
-                        y={222}
-                        width={24}
-                        height={16}
-                        rx={1}
-                        fill='#0a0a15'
-                        stroke='#3a3a5a'
-                        strokeWidth={0.5}
-                    />
-                    <rect
-                        x={dx - 10}
-                        y={224}
-                        width={20}
-                        height={12}
-                        rx={0.5}
-                        fill='#00ff88'
-                        opacity={screenGlow * 0.15}
-                    />
-                    <rect
-                        x={dx - 2}
-                        y={238}
-                        width={4}
-                        height={2}
-                        fill='#3a3a5a'
-                    />
+                    <rect x={cfg.deskX - 12} y={242} width={24} height={16} rx={1} fill='#0a0a15' stroke='#3a3a5a' strokeWidth={0.5} />
+                    <rect x={cfg.deskX - 10} y={244} width={20} height={12} rx={0.5} fill={cfg.color} opacity={screenGlow * 0.12} />
+                    {/* Screen scan line */}
+                    <rect x={cfg.deskX - 10} y={244 + (i * 3) % 12} width={20} height={1} fill='#fff' opacity={0.03}>
+                        <animate attributeName='y' values='244;256;244' dur={`${3 + i * 0.5}s`} repeatCount='indefinite' />
+                    </rect>
+                    <rect x={cfg.deskX - 2} y={258} width={4} height={2} fill='#3a3a5a' />
+                    {/* Keyboard */}
+                    <rect x={cfg.deskX - 8} y={261} width={16} height={2} rx={0.5} fill='#2a2a3a' />
                 </g>
             ))}
+
+            {/* Server rack (right wall) */}
+            <rect x={760} y={140} width={30} height={100} rx={2} fill='#1a1a28' stroke='#2a2a4a' strokeWidth={1} />
+            {[148, 160, 172, 184, 196, 208, 220].map((y, i) => (
+                <g key={y}>
+                    <rect x={764} y={y} width={22} height={8} rx={1} fill='#0a0a15' />
+                    <circle cx={782} cy={y + 4} r={1.5} fill={i < 3 ? '#a6e3a1' : '#3a3a5a'}>
+                        {i < 3 && (
+                            <animate attributeName='opacity' values='1;0.4;1' dur={`${1.5 + i * 0.3}s`} repeatCount='indefinite' />
+                        )}
+                    </circle>
+                </g>
+            ))}
+
+            {/* Plant */}
+            <g transform='translate(165, 250)'>
+                <rect x={-4} y={5} width={8} height={10} rx={1} fill='#4a3a2a' />
+                <circle cx={0} cy={2} r={6} fill='#166534' />
+                <circle cx={-4} cy={-1} r={4} fill='#15803d' />
+                <circle cx={4} cy={0} r={4} fill='#166534' />
+            </g>
+
+            {/* Plant 2 */}
+            <g transform='translate(470, 248)'>
+                <rect x={-3} y={6} width={6} height={8} rx={1} fill='#6b4226' />
+                <ellipse cx={0} cy={3} rx={5} ry={7} fill='#15803d' />
+            </g>
 
             {/* Coffee machine */}
-            <rect
-                x={720}
-                y={235}
-                width={20}
-                height={25}
-                rx={2}
-                fill='#4a3a2a'
-            />
-            <rect x={723} y={237} width={14} height={5} rx={1} fill='#6a4a2a' />
-            <circle cx={730} cy={248} r={2} fill='#ff6644' opacity={0.6} />
+            <rect x={720} y={252} width={22} height={28} rx={2} fill='#4a3a2a' />
+            <rect x={723} y={254} width={16} height={6} rx={1} fill='#6a4a2a' />
+            <circle cx={731} cy={268} r={2} fill='#ff6644' opacity={0.6}>
+                <animate attributeName='opacity' values='0.6;0.2;0.6' dur='3s' repeatCount='indefinite' />
+            </circle>
 
-            {/* Ceiling lights */}
+            {/* Ceiling lights with glow */}
             {[150, 350, 550, 750].map(lx => (
                 <g key={lx}>
-                    <rect
-                        x={lx - 15}
-                        y={80}
-                        width={30}
-                        height={3}
-                        fill='#2a2a4a'
-                    />
-                    <line
-                        x1={lx}
-                        y1={83}
-                        x2={lx}
-                        y2={93}
-                        stroke='#3a3a5a'
-                        strokeWidth={1}
-                    />
-                    <ellipse
-                        cx={lx}
-                        cy={96}
-                        rx={8}
-                        ry={3}
+                    <rect x={lx - 15} y={100} width={30} height={3} fill='#2a2a4a' />
+                    <line x1={lx} y1={103} x2={lx} y2={113} stroke='#3a3a5a' strokeWidth={1} />
+                    <ellipse cx={lx} cy={116} rx={8} ry={3} fill='#ffee88' opacity={period === 'night' ? 0.15 : 0.3} />
+                    {/* Light cone */}
+                    <polygon
+                        points={`${lx - 6},119 ${lx + 6},119 ${lx + 30},300 ${lx - 30},300`}
                         fill='#ffee88'
-                        opacity={period === 'night' ? 0.15 : 0.3}
+                        opacity={period === 'night' ? 0.015 : 0.025}
                     />
                 </g>
             ))}
+
+            {/* Clock on wall */}
+            <g transform='translate(400, 130)'>
+                <circle cx={0} cy={0} r={12} fill='#1a1a28' stroke='#3a3a5a' strokeWidth={1} />
+                <circle cx={0} cy={0} r={10} fill='#0a0a15' />
+                {/* Hour marks */}
+                {[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map(deg => (
+                    <line
+                        key={deg}
+                        x1={0} y1={-8}
+                        x2={0} y2={-7}
+                        stroke='#555'
+                        strokeWidth={0.5}
+                        transform={`rotate(${deg})`}
+                    />
+                ))}
+                {/* Animated hands */}
+                <line x1={0} y1={0} x2={0} y2={-6} stroke='#9ca3af' strokeWidth={1} strokeLinecap='round'>
+                    <animateTransform attributeName='transform' type='rotate' from='0' to='360' dur='3600s' repeatCount='indefinite' />
+                </line>
+                <line x1={0} y1={0} x2={0} y2={-8} stroke='#d4d4d8' strokeWidth={0.5} strokeLinecap='round'>
+                    <animateTransform attributeName='transform' type='rotate' from='0' to='360' dur='60s' repeatCount='indefinite' />
+                </line>
+            </g>
+
+            {/* Poster on wall */}
+            <g transform='translate(220, 120)'>
+                <rect x={0} y={0} width={40} height={55} rx={1} fill='#1a1a30' stroke='#3a3a5a' strokeWidth={0.5} />
+                <text x={20} y={20} textAnchor='middle' fontSize={5} fill='#cba6f7' fontFamily='monospace'>SUBCULT</text>
+                <text x={20} y={30} textAnchor='middle' fontSize={4} fill='#4a4a6a' fontFamily='monospace'>AUTONOMY</text>
+                <text x={20} y={38} textAnchor='middle' fontSize={4} fill='#4a4a6a' fontFamily='monospace'>THROUGH</text>
+                <text x={20} y={46} textAnchor='middle' fontSize={4} fill='#4a4a6a' fontFamily='monospace'>ALIGNMENT</text>
+            </g>
         </>
     );
 }
 
-// ─── Whiteboard ───
+// ─── Enhanced Whiteboard ───
 
 function Whiteboard({
-    totalEvents,
-    activeMissions,
-    conversations,
+    totalEvents, activeMissions, conversations, memories,
 }: {
-    totalEvents: number;
-    activeMissions: number;
-    conversations: number;
+    totalEvents: number; activeMissions: number;
+    conversations: number; memories: Record<string, number>;
 }) {
-    return (
-        <g transform='translate(500, 110)'>
-            {/* Board */}
-            <rect
-                x={0}
-                y={0}
-                width={120}
-                height={70}
-                rx={2}
-                fill='#f5f5f0'
-                stroke='#999'
-                strokeWidth={1}
-            />
-            {/* Title */}
-            <text
-                x={60}
-                y={14}
-                textAnchor='middle'
-                fontSize={7}
-                fill='#333'
-                fontFamily='monospace'
-                fontWeight='bold'
-            >
-                OPS METRICS
-            </text>
-            <line
-                x1={10}
-                y1={18}
-                x2={110}
-                y2={18}
-                stroke='#ccc'
-                strokeWidth={0.5}
-            />
+    const totalMemories = Object.values(memories).reduce((a, b) => a + b, 0);
 
-            {/* Metrics */}
-            <text x={15} y={32} fontSize={6} fill='#666' fontFamily='monospace'>
-                Events: {totalEvents}
+    return (
+        <g transform='translate(530, 120)'>
+            {/* Board */}
+            <rect x={0} y={0} width={140} height={90} rx={2} fill='#f5f5f0' stroke='#999' strokeWidth={1} />
+            {/* Title */}
+            <text x={70} y={14} textAnchor='middle' fontSize={7} fill='#333' fontFamily='monospace' fontWeight='bold'>
+                OPS DASHBOARD
             </text>
-            <text x={15} y={44} fontSize={6} fill='#666' fontFamily='monospace'>
-                Active: {activeMissions}
-            </text>
-            <text x={15} y={56} fontSize={6} fill='#666' fontFamily='monospace'>
-                Convos: {conversations}
-            </text>
+            <line x1={10} y1={18} x2={130} y2={18} stroke='#ccc' strokeWidth={0.5} />
+
+            {/* Metrics in a grid */}
+            <text x={15} y={32} fontSize={6} fill='#666' fontFamily='monospace'>Events</text>
+            <text x={95} y={32} fontSize={7} fill='#333' fontFamily='monospace' fontWeight='bold' textAnchor='end'>{totalEvents}</text>
+
+            <text x={15} y={44} fontSize={6} fill='#666' fontFamily='monospace'>Active</text>
+            <text x={95} y={44} fontSize={7} fill={activeMissions > 0 ? '#a6e3a1' : '#333'} fontFamily='monospace' fontWeight='bold' textAnchor='end'>{activeMissions}</text>
+
+            <text x={15} y={56} fontSize={6} fill='#666' fontFamily='monospace'>Convos</text>
+            <text x={95} y={56} fontSize={7} fill='#333' fontFamily='monospace' fontWeight='bold' textAnchor='end'>{conversations}</text>
+
+            <text x={15} y={68} fontSize={6} fill='#666' fontFamily='monospace'>Memories</text>
+            <text x={95} y={68} fontSize={7} fill='#333' fontFamily='monospace' fontWeight='bold' textAnchor='end'>{totalMemories}</text>
+
+            {/* Mini bar chart for memories by agent */}
+            <line x1={100} y1={24} x2={100} y2={72} stroke='#ddd' strokeWidth={0.5} />
+            {Object.entries(memories).slice(0, 6).map(([agentId, count], i) => {
+                const agent = AGENTS[agentId as AgentId];
+                const barWidth = Math.min(count * 4, 30);
+                return (
+                    <g key={agentId}>
+                        <rect x={104} y={25 + i * 8} width={barWidth} height={5} rx={1} fill={agent?.color ?? '#666'} opacity={0.6} />
+                        {count > 0 && (
+                            <text x={106 + barWidth} y={30 + i * 8} fontSize={5} fill='#999' fontFamily='monospace'>{count}</text>
+                        )}
+                    </g>
+                );
+            })}
 
             {/* Status dot */}
-            <circle cx={105} cy={58} r={3} fill='#22c55e'>
-                <animate
-                    attributeName='opacity'
-                    values='1;0.3;1'
-                    dur='2s'
-                    repeatCount='indefinite'
-                />
+            <circle cx={125} cy={80} r={3} fill='#a6e3a1'>
+                <animate attributeName='opacity' values='1;0.3;1' dur='2s' repeatCount='indefinite' />
             </circle>
+            <text x={118} y={83} fontSize={5} fill='#999' fontFamily='monospace' textAnchor='end'>LIVE</text>
         </g>
     );
 }
 
 // ─── Stars (night/dusk only) ───
 
-// Pre-generate star positions outside the component (pure, runs once at module load)
-const STAR_DATA = Array.from({ length: 30 }, (_, i) => ({
+const STAR_DATA = Array.from({ length: 40 }, (_, i) => ({
     x: (i * 127 + 53) % 800,
     y: ((i * 71 + 17) % 70) + 5,
     r: ((i * 31) % 12) / 10 + 0.3,
@@ -498,32 +389,102 @@ const STAR_DATA = Array.from({ length: 30 }, (_, i) => ({
 }));
 
 function Stars({ period }: { period: 'day' | 'dusk' | 'night' }) {
-    const stars = STAR_DATA;
-
     if (period === 'day') return null;
     const opacity = period === 'night' ? 0.8 : 0.3;
 
     return (
         <>
-            {stars.map((star, i) => (
-                <circle
-                    key={i}
-                    cx={star.x}
-                    cy={star.y}
-                    r={star.r}
-                    fill='white'
-                    opacity={opacity}
-                >
-                    <animate
-                        attributeName='opacity'
-                        values={`${opacity};${opacity * 0.3};${opacity}`}
-                        dur='3s'
-                        begin={`${star.delay}s`}
-                        repeatCount='indefinite'
-                    />
+            {STAR_DATA.map((star, i) => (
+                <circle key={i} cx={star.x} cy={star.y} r={star.r} fill='white' opacity={opacity}>
+                    <animate attributeName='opacity' values={`${opacity};${opacity * 0.3};${opacity}`} dur='3s' begin={`${star.delay}s`} repeatCount='indefinite' />
+                </circle>
+            ))}
+            {/* Moon (night only) */}
+            {period === 'night' && (
+                <g transform='translate(700, 30)'>
+                    <circle cx={0} cy={0} r={12} fill='#e0e0d0' opacity={0.2} />
+                    <circle cx={3} cy={-2} r={10} fill='#0a0a1a' /> {/* Crescent mask */}
+                </g>
+            )}
+        </>
+    );
+}
+
+// ─── Floating Particles ───
+
+const PARTICLE_DATA = Array.from({ length: 15 }, (_, i) => ({
+    x: (i * 53 + 17) % CANVAS_W,
+    baseY: 120 + ((i * 37) % 160),
+    size: 0.5 + ((i * 13) % 10) / 10,
+    speed: 8 + (i % 5) * 4,
+    delay: (i * 2) % 10,
+}));
+
+function FloatingParticles() {
+    return (
+        <>
+            {PARTICLE_DATA.map((p, i) => (
+                <circle key={i} cx={p.x} cy={p.baseY} r={p.size} fill='#fff' opacity={0.04}>
+                    <animate attributeName='cy' values={`${p.baseY};${p.baseY - 20};${p.baseY}`} dur={`${p.speed}s`} begin={`${p.delay}s`} repeatCount='indefinite' />
+                    <animate attributeName='opacity' values='0.04;0.08;0.04' dur={`${p.speed}s`} begin={`${p.delay}s`} repeatCount='indefinite' />
                 </circle>
             ))}
         </>
+    );
+}
+
+// ─── Agent Status Cards (below SVG) ───
+
+function AgentStatusBar({ agents, sessions }: {
+    agents: OfficeAgent[];
+    sessions: { format: string; status: string; participants: string[]; topic: string }[];
+}) {
+    const activeSession = sessions.find(s => s.status === 'running' || s.status === 'pending');
+    const lastCompleted = sessions.find(s => s.status === 'completed');
+
+    return (
+        <div className='px-3 py-2 border-t border-zinc-800/50 bg-zinc-900/30'>
+            <div className='flex items-center gap-3 overflow-x-auto'>
+                {agents.map(agent => {
+                    const agentDef = AGENTS[agent.id as AgentId];
+                    const inActiveSession = activeSession?.participants.includes(agent.id);
+                    const textColor = agentDef?.tailwindTextColor ?? 'text-zinc-400';
+
+                    return (
+                        <div key={agent.id} className='flex items-center gap-1.5 shrink-0'>
+                            <div className={`w-1.5 h-1.5 rounded-full ${agentDef?.tailwindBgColor ?? 'bg-zinc-500'} ${inActiveSession ? 'animate-pulse' : ''}`} />
+                            <span className={`text-[10px] font-semibold ${textColor}`}>
+                                {agent.name}
+                            </span>
+                            <span className='text-[9px] text-zinc-600'>
+                                {inActiveSession ? 'in session' : agent.behavior}
+                            </span>
+                        </div>
+                    );
+                })}
+                {activeSession && (
+                    <div className='ml-auto flex items-center gap-1.5 shrink-0'>
+                        <span className='relative flex h-1.5 w-1.5'>
+                            <span className='animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-blue opacity-75' />
+                            <span className='relative inline-flex rounded-full h-1.5 w-1.5 bg-accent-blue' />
+                        </span>
+                        <span className='text-[10px] text-accent-blue font-medium'>
+                            {activeSession.format}
+                        </span>
+                        <span className='text-[9px] text-zinc-600 max-w-40 truncate'>
+                            {activeSession.topic}
+                        </span>
+                    </div>
+                )}
+                {!activeSession && lastCompleted && (
+                    <div className='ml-auto shrink-0'>
+                        <span className='text-[9px] text-zinc-600'>
+                            Last: {lastCompleted.format}
+                        </span>
+                    </div>
+                )}
+            </div>
+        </div>
     );
 }
 
@@ -532,6 +493,7 @@ function Stars({ period }: { period: 'day' | 'dusk' | 'night' }) {
 export function OfficeRoom() {
     const period = useTimeOfDay();
     const { stats } = useSystemStats();
+    const { sessions } = useConversations(5);
     const sky = SKY_COLORS[period];
 
     const [agents, setAgents] = useState<OfficeAgent[]>(() =>
@@ -541,112 +503,155 @@ export function OfficeRoom() {
             color: cfg.color,
             skinColor: cfg.skinColor,
             x: cfg.startX,
-            y: 230,
+            y: 250,
             behavior: 'working' as AgentBehavior,
             targetX: cfg.startX,
             frame: 0,
+            speechBubble: undefined,
+            speechTick: 0,
         })),
     );
 
-    // Randomize behaviors every 8-15 seconds
-    useEffect(() => {
-        const interval = setInterval(
-            () => {
-                setAgents(prev =>
-                    prev.map(agent => {
-                        const newBehavior =
-                            BEHAVIORS[
-                                Math.floor(Math.random() * BEHAVIORS.length)
-                            ];
-                        const newTargetX =
-                            newBehavior === 'walking' ?
-                                100 + Math.random() * (CANVAS_W - 200)
-                            : newBehavior === 'coffee' ? 720
-                            : agent.x;
+    // Fetch recent conversation turns for speech bubbles
+    const [recentTurns, setRecentTurns] = useState<{ speaker: string; dialogue: string }[]>([]);
 
-                        return {
-                            ...agent,
-                            behavior: newBehavior,
-                            targetX: newTargetX,
-                        };
-                    }),
-                );
-            },
-            8000 + Math.random() * 7000,
-        );
+    useEffect(() => {
+        async function fetchTurns() {
+            try {
+                const lastSession = sessions.find(s => s.status === 'completed' || s.status === 'running');
+                if (!lastSession) return;
+                const res = await fetch(`/api/ops/turns?session_id=${lastSession.id}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.turns?.length > 0) {
+                    setRecentTurns(data.turns.slice(-6).map((t: { speaker: string; dialogue: string }) => ({
+                        speaker: t.speaker,
+                        dialogue: t.dialogue,
+                    })));
+                }
+            } catch { /* ignore */ }
+        }
+        fetchTurns();
+    }, [sessions]);
+
+    // Cycle behaviors with speech bubbles from real data
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setAgents(prev =>
+                prev.map(agent => {
+                    const newBehavior = BEHAVIORS[Math.floor(Math.random() * BEHAVIORS.length)];
+                    const newTargetX =
+                        newBehavior === 'walking' ? 100 + Math.random() * (CANVAS_W - 200) :
+                        newBehavior === 'coffee' ? 720 :
+                        agent.x;
+
+                    // Maybe show speech bubble from real conversation data
+                    let speechBubble: string | undefined;
+                    if (newBehavior === 'chatting' && recentTurns.length > 0) {
+                        const agentTurns = recentTurns.filter(t => t.speaker === agent.id);
+                        if (agentTurns.length > 0) {
+                            const turn = agentTurns[Math.floor(Math.random() * agentTurns.length)];
+                            speechBubble = turn.dialogue.slice(0, 60);
+                        }
+                    }
+
+                    return {
+                        ...agent,
+                        behavior: newBehavior,
+                        targetX: newTargetX,
+                        speechBubble,
+                        speechTick: speechBubble ? 40 : 0, // Auto-clear after ~4 seconds
+                    };
+                }),
+            );
+        }, 8000 + Math.random() * 7000);
 
         return () => clearInterval(interval);
-    }, []);
+    }, [recentTurns]);
 
-    // Animation loop — move walking agents and increment frame counter
+    // Animation loop
     useInterval(() => {
         setAgents(prev =>
             prev.map(agent => {
                 let newX = agent.x;
-                if (
-                    agent.behavior === 'walking' ||
-                    agent.behavior === 'coffee'
-                ) {
+                if (agent.behavior === 'walking' || agent.behavior === 'coffee') {
                     const dx = agent.targetX - agent.x;
                     if (Math.abs(dx) > 2) {
                         newX = agent.x + Math.sign(dx) * 2;
                     }
                 }
-                return { ...agent, x: newX, frame: agent.frame + 1 };
+                // Auto-clear speech bubbles
+                const newSpeechTick = agent.speechTick > 0 ? agent.speechTick - 1 : 0;
+                return {
+                    ...agent,
+                    x: newX,
+                    frame: agent.frame + 1,
+                    speechBubble: newSpeechTick > 0 ? agent.speechBubble : undefined,
+                    speechTick: newSpeechTick,
+                };
             }),
         );
     }, 100);
+
+    const sessionData = useMemo(() =>
+        sessions.map(s => ({
+            format: s.format,
+            status: s.status,
+            participants: s.participants,
+            topic: s.topic,
+        })),
+    [sessions]);
 
     return (
         <div className='rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden'>
             <div className='flex items-center justify-between px-4 py-2 border-b border-zinc-800'>
                 <span className='text-xs font-medium text-zinc-400'>
-                    🏢 The Office
+                    The Office
                 </span>
-                <span className='text-[10px] text-zinc-600'>
-                    {period === 'day' ?
-                        '☀️ Day'
-                    : period === 'dusk' ?
-                        '🌅 Dusk'
-                    :   '🌙 Night'}
-                </span>
+                <div className='flex items-center gap-3'>
+                    <span className='text-[10px] text-zinc-600'>
+                        {period === 'day' ? 'Day' : period === 'dusk' ? 'Dusk' : 'Night'}
+                    </span>
+                    <span className='text-[10px] text-zinc-700'>
+                        {agents.filter(a => a.behavior !== 'working').length} agents active
+                    </span>
+                </div>
             </div>
             <svg
                 viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
                 className='w-full'
-                style={{ imageRendering: 'pixelated' }}
+                style={{ imageRendering: 'auto' }}
             >
                 <defs>
-                    <linearGradient
-                        id='skyGradient'
-                        x1='0'
-                        y1='0'
-                        x2='0'
-                        y2='1'
-                    >
+                    <linearGradient id='skyGradient' x1='0' y1='0' x2='0' y2='1'>
                         <stop offset='0%' stopColor={sky.from} />
                         <stop offset='100%' stopColor={sky.to} />
                     </linearGradient>
+                    <filter id='glow'>
+                        <feGaussianBlur stdDeviation='2' result='blur' />
+                        <feMerge>
+                            <feMergeNode in='blur' />
+                            <feMergeNode in='SourceGraphic' />
+                        </feMerge>
+                    </filter>
                 </defs>
 
                 {/* Sky */}
-                <rect
-                    x={0}
-                    y={0}
-                    width={CANVAS_W}
-                    height={80}
-                    fill='url(#skyGradient)'
-                />
+                <rect x={0} y={0} width={CANVAS_W} height={100} fill='url(#skyGradient)' />
                 <Stars period={period} />
 
                 {/* Office */}
                 <OfficeFurniture period={period} />
+
+                {/* Floating ambient particles */}
+                <FloatingParticles />
 
                 {/* Whiteboard */}
                 <Whiteboard
                     totalEvents={stats?.totalEvents ?? 0}
                     activeMissions={stats?.activeMissions ?? 0}
                     conversations={stats?.totalConversations ?? 0}
+                    memories={stats?.agentMemories ?? {}}
                 />
 
                 {/* Agents */}
@@ -654,6 +659,9 @@ export function OfficeRoom() {
                     <PixelAgent key={agent.id} agent={agent} />
                 ))}
             </svg>
+
+            {/* Agent status bar */}
+            <AgentStatusBar agents={agents} sessions={sessionData} />
         </div>
     );
 }

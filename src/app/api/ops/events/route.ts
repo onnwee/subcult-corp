@@ -1,6 +1,6 @@
 // /api/ops/events — List recent events
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db';
+import { sql, jsonb } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
             WHERE 1=1
             ${agentId ? sql`AND agent_id = ${agentId}` : sql``}
             ${kind ? sql`AND kind = ${kind}` : sql``}
-            ${missionId ? sql`AND metadata @> ${JSON.stringify({ missionId })}::jsonb` : sql``}
+            ${missionId ? sql`AND metadata @> ${jsonb({ missionId })}` : sql``}
             ORDER BY created_at DESC
             LIMIT ${limit}
         `;

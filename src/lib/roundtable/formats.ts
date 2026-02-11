@@ -49,6 +49,7 @@ export const FORMATS: Record<ConversationFormat, FormatConfig> = {
         temperature: 0.6,
         requires: ['chora'],
         optional: ['thaum', 'subrosa'],
+        defaultModel: 'moonshotai/kimi-k2.5',
     },
     risk_review: {
         coordinatorRole: 'subrosa',
@@ -61,6 +62,7 @@ export const FORMATS: Record<ConversationFormat, FormatConfig> = {
         temperature: 0.5,
         requires: ['subrosa'],
         optional: ['chora', 'praxis'],
+        defaultModel: 'moonshotai/kimi-k2.5',
     },
     strategy: {
         coordinatorRole: 'primus',
@@ -72,6 +74,7 @@ export const FORMATS: Record<ConversationFormat, FormatConfig> = {
         temperature: 0.7,
         requires: ['primus', 'chora', 'praxis'],
         optional: ['subrosa'],
+        defaultModel: 'moonshotai/kimi-k2.5',
     },
 
     // ─── Execution ───
@@ -97,6 +100,7 @@ export const FORMATS: Record<ConversationFormat, FormatConfig> = {
         temperature: 0.5,
         requires: ['praxis', 'subrosa'],
         optional: ['mux'],
+        defaultModel: 'moonshotai/kimi-k2.5',
     },
     retro: {
         coordinatorRole: 'primus',
@@ -169,6 +173,7 @@ export const FORMATS: Record<ConversationFormat, FormatConfig> = {
         temperature: 0.7,
         requires: ['chora'],
         optional: ['mux'],
+        defaultModel: 'moonshotai/kimi-k2.5',
     },
     content_review: {
         coordinatorRole: 'subrosa',

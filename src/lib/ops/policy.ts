@@ -1,5 +1,5 @@
 // Policy store with 30-second TTL cache
-import { sql } from '@/lib/db';
+import { sql, jsonb } from '@/lib/db';
 
 const CACHE_TTL_MS = 30_000;
 const policyCache = new Map<
@@ -29,7 +29,7 @@ export async function setPolicy(
 ): Promise<void> {
     await sql`
         INSERT INTO ops_policy (key, value, description, updated_at)
-        VALUES (${key}, ${JSON.stringify(value)}::jsonb, ${description ?? null}, NOW())
+        VALUES (${key}, ${jsonb(value)}, ${description ?? null}, NOW())
         ON CONFLICT (key) DO UPDATE SET
             value = EXCLUDED.value,
             description = COALESCE(EXCLUDED.description, ops_policy.description),

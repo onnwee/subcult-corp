@@ -6,7 +6,7 @@ import { StatsBarSkeleton } from './StageSkeletons';
 import { AGENTS } from '@/lib/agents';
 import type { AgentId } from '@/lib/types';
 
-export type ViewMode = 'feed' | 'missions' | 'office';
+export type ViewMode = 'feed' | 'missions' | 'office' | 'logs';
 
 function StatCard({ label, value }: { label: string; value: number | string }) {
     return (
@@ -34,6 +34,7 @@ export function StageHeader({
         { key: 'feed', label: 'Signal Feed', icon: '📡' },
         { key: 'missions', label: 'Missions', icon: '🎯' },
         { key: 'office', label: 'Office', icon: '🏢' },
+        { key: 'logs', label: 'Cortex', icon: '🧠' },
     ];
 
     return (

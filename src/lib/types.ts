@@ -273,6 +273,8 @@ export interface FormatConfig {
     temperature: number;
     requires?: AgentId[];
     optional?: AgentId[];
+    /** Default model for this format tier. Session-level override takes priority. */
+    defaultModel?: string;
 }
 
 export interface ScheduleSlot {
@@ -291,6 +293,7 @@ export interface RoundtableSession {
     status: SessionStatus;
     scheduled_for?: string;
     schedule_slot?: string;
+    model?: string;
     turn_count: number;
     metadata: Record<string, unknown>;
     created_at: string;
@@ -326,6 +329,85 @@ export interface LLMGenerateOptions {
     temperature?: number;
     maxTokens?: number;
     model?: string; // Override default model for this request
+    tools?: ToolDefinition[];
+    maxToolRounds?: number;
+}
+
+// ─── Tool / Skill Types ───
+
+/**
+ * A tool definition that the LLM can invoke.
+ * Uses the OpenRouter SDK's callModel tool format with Zod schemas
+ * and auto-execution via execute functions.
+ */
+export interface ToolDefinition {
+    name: string;
+    description: string;
+    /** JSON Schema for tool parameters */
+    parameters: Record<string, unknown>;
+    /** If provided, the tool is auto-executed by the SDK */
+    execute?: (params: Record<string, unknown>) => Promise<unknown>;
+}
+
+/** Result from an LLM call that may include tool invocations */
+export interface LLMToolResult {
+    text: string;
+    toolCalls: ToolCallRecord[];
+}
+
+/** Record of a single tool invocation during generation */
+export interface ToolCallRecord {
+    name: string;
+    arguments: Record<string, unknown>;
+    result?: unknown;
+}
+
+/**
+ * Skill definition that maps to an OpenClaw skill.
+ * Each skill becomes one or more tools available to specific agents.
+ */
+export interface SkillDefinition {
+    /** Unique skill identifier (matches OpenClaw skill ID) */
+    id: string;
+    /** Human-readable name */
+    name: string;
+    /** What this skill does */
+    description: string;
+    /** Which agents can use this skill */
+    agents: AgentId[];
+    /** Whether this skill requires OpenClaw gateway (vs local execution) */
+    requiresGateway: boolean;
+    /** Tool definitions this skill provides */
+    tools: ToolDefinition[];
+    /** Whether the skill is currently enabled */
+    enabled: boolean;
+}
+
+/** Agent-to-skills mapping (runtime registry) */
+export interface AgentSkillSet {
+    agentId: AgentId;
+    skills: SkillDefinition[];
+    tools: ToolDefinition[];
+}
+
+/** OpenClaw gateway connection config */
+export interface OpenClawConfig {
+    gatewayUrl: string;
+    /** Auth token for the gateway */
+    authToken?: string;
+    /** Timeout for skill execution in ms */
+    timeoutMs: number;
+    /** Whether the gateway is available */
+    available: boolean;
+}
+
+/** Result from executing a skill via OpenClaw */
+export interface SkillExecutionResult {
+    success: boolean;
+    skillId: string;
+    output: unknown;
+    error?: string;
+    durationMs: number;
 }
 
 // ─── Memory Types ───

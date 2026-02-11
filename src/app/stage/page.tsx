@@ -3,31 +3,28 @@
 
 import { useState, Suspense } from 'react';
 import { StageHeader, type ViewMode } from './StageHeader';
-import { StageFilters, type FilterState } from './StageFilters';
-import { SignalFeed } from './SignalFeed';
 import { MissionsList } from './MissionsList';
 import { MissionPlayback } from './MissionPlayback';
 import { OfficeRoom } from './OfficeRoom';
+import { EventLogFeed } from './EventLogFeed';
+import { SystemLogs } from './SystemLogs';
 import { StageErrorBoundary, SectionErrorBoundary } from './StageErrorBoundary';
 import {
-    SignalFeedSkeleton,
     MissionsListSkeleton,
     OfficeRoomSkeleton,
+    EventLogFeedSkeleton,
+    SystemLogsSkeleton,
 } from './StageSkeletons';
 
 export default function StagePage() {
     const [view, setView] = useState<ViewMode>('feed');
-    const [filters, setFilters] = useState<FilterState>({
-        agentId: null,
-        kind: null,
-    });
     const [playbackMissionId, setPlaybackMissionId] = useState<string | null>(
         null,
     );
 
     return (
         <StageErrorBoundary>
-            <div className='min-h-screen bg-zinc-950 text-zinc-100'>
+            <div className='min-h-screen bg-[#11111b] text-zinc-100'>
                 <div className='mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 space-y-6'>
                     {/* Header with stats + view toggle */}
                     <StageHeader view={view} onViewChange={setView} />
@@ -44,20 +41,11 @@ export default function StagePage() {
 
                     {/* ── Feed View ── */}
                     {view === 'feed' && (
-                        <div className='space-y-4'>
-                            <StageFilters
-                                filters={filters}
-                                onChange={setFilters}
-                            />
-                            <SectionErrorBoundary label='Signal Feed'>
-                                <Suspense fallback={<SignalFeedSkeleton />}>
-                                    <SignalFeed
-                                        agentId={filters.agentId ?? undefined}
-                                        kind={filters.kind ?? undefined}
-                                    />
-                                </Suspense>
-                            </SectionErrorBoundary>
-                        </div>
+                        <SectionErrorBoundary label='Event Log'>
+                            <Suspense fallback={<EventLogFeedSkeleton />}>
+                                <EventLogFeed />
+                            </Suspense>
+                        </SectionErrorBoundary>
                     )}
 
                     {/* ── Missions View ── */}
@@ -73,9 +61,25 @@ export default function StagePage() {
 
                     {/* ── Office View ── */}
                     {view === 'office' && (
-                        <SectionErrorBoundary label='Office'>
-                            <Suspense fallback={<OfficeRoomSkeleton />}>
-                                <OfficeRoom />
+                        <div className='space-y-4'>
+                            <SectionErrorBoundary label='Office'>
+                                <Suspense fallback={<OfficeRoomSkeleton />}>
+                                    <OfficeRoom />
+                                </Suspense>
+                            </SectionErrorBoundary>
+                            <SectionErrorBoundary label='Event Log'>
+                                <Suspense fallback={<EventLogFeedSkeleton />}>
+                                    <EventLogFeed />
+                                </Suspense>
+                            </SectionErrorBoundary>
+                        </div>
+                    )}
+
+                    {/* ── System Logs View ── */}
+                    {view === 'logs' && (
+                        <SectionErrorBoundary label='System Logs'>
+                            <Suspense fallback={<SystemLogsSkeleton />}>
+                                <SystemLogs />
                             </Suspense>
                         </SectionErrorBoundary>
                     )}

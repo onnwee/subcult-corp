@@ -1,5 +1,5 @@
 // Agent relationships — affinity, drift, interaction types
-import { sql } from '@/lib/db';
+import { sql, jsonb } from '@/lib/db';
 import type {
     AgentRelationship,
     PairwiseDrift,
@@ -104,7 +104,7 @@ export async function applyPairwiseDrifts(
                 total_interactions = ${(current.total_interactions ?? 0) + 1},
                 positive_interactions = ${(current.positive_interactions ?? 0) + (clampedDrift > 0 ? 1 : 0)},
                 negative_interactions = ${(current.negative_interactions ?? 0) + (clampedDrift < 0 ? 1 : 0)},
-                drift_log = ${JSON.stringify(newLog)}::jsonb
+                drift_log = ${jsonb(newLog)}
             WHERE agent_a = ${a} AND agent_b = ${b}
         `;
     }
