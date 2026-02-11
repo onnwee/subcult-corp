@@ -17,7 +17,7 @@ const log = createLogger({ service: 'roundtable-worker' });
 // ─── Config ───
 
 const POLL_INTERVAL_MS = 30_000; // 30 seconds
-const MAX_DIALOGUE_LENGTH = 120;
+const MAX_DIALOGUE_LENGTH = 500;
 
 if (!process.env.DATABASE_URL) {
     log.fatal('Missing DATABASE_URL environment variable');
@@ -100,7 +100,7 @@ function stripThinking(text) {
  * Try generating via Ollama's OpenAI-compatible endpoint.
  * Returns trimmed text or null on failure/empty.
  */
-async function ollamaGenerate(messages, temperature, model) {
+async function ollamaGenerate(messages, temperature, model, maxTokens = 250) {
     if (!OLLAMA_BASE_URL) return null;
 
     try {
@@ -110,23 +110,20 @@ async function ollamaGenerate(messages, temperature, model) {
             OLLAMA_TIMEOUT_MS,
         );
 
-        // Append /no_think to last user message — disables qwen3 reasoning chain
-        // for short dialogue turns (faster, avoids empty-after-strip responses)
-        const ollamaMessages = messages.map((m, i) => {
-            if (m.role === 'user' && i === messages.length - 1) {
-                return { ...m, content: m.content + ' /no_think' };
-            }
-            return m;
-        });
-
-        const response = await fetch(`${OLLAMA_BASE_URL}/v1/chat/completions`, {
+        // Use native Ollama API with think:false — disables qwen3 reasoning chain
+        // for short dialogue turns (faster, no empty-after-strip responses)
+        const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 model,
-                messages: ollamaMessages,
-                temperature,
-                max_tokens: 250,
+                messages,
+                stream: false,
+                think: false,
+                options: {
+                    temperature,
+                    num_predict: maxTokens,
+                },
             }),
             signal: controller.signal,
         });
@@ -139,7 +136,7 @@ async function ollamaGenerate(messages, temperature, model) {
         }
 
         const data = await response.json();
-        const raw = data.choices?.[0]?.message?.content ?? '';
+        const raw = data.message?.content ?? '';
         const text = stripThinking(raw).trim();
         if (text.length > 0) return text;
 
@@ -965,6 +962,7 @@ async function llmGenerate(
     temperature = 0.7,
     tools = null,
     models = null,
+    maxTokens = 250,
 ) {
     const effectiveModels = models ?? LLM_MODELS;
     const systemMessage = messages.find(m => m.role === 'system');
@@ -973,7 +971,7 @@ async function llmGenerate(
     // ── 1) Try Ollama first (free, local inference) ──
     if (OLLAMA_BASE_URL) {
         for (const model of OLLAMA_MODELS) {
-            const text = await ollamaGenerate(messages, temperature, model);
+            const text = await ollamaGenerate(messages, temperature, model, maxTokens);
             if (text) {
                 log.debug('Ollama model succeeded', { model });
                 return text;
@@ -993,7 +991,7 @@ async function llmGenerate(
                 content: m.content,
             })),
             temperature,
-            maxOutputTokens: 250,
+            maxOutputTokens: maxTokens,
         };
     };
 
@@ -1297,7 +1295,7 @@ function buildSystemPrompt(
     }
 
     prompt += `\n═══ RULES ═══\n`;
-    prompt += `- Keep your response under 120 characters\n`;
+    prompt += `- Keep your response to 2-3 sentences max. Be substantive.\n`;
     prompt += `- Speak as ${voice.displayName} (${voice.pronouns}) — no stage directions, no asterisks, no quotes\n`;
     prompt += `- Stay in character: ${voice.tone}\n`;
     prompt += `- Respond to what was just said. Don't monologue. Don't repeat yourself.\n`;
@@ -1323,12 +1321,12 @@ function buildUserPrompt(topic, turn, maxTurns, speakerName, format) {
         const opener =
             openers[format] ??
             `You're opening this conversation about: "${topic}". Set the tone.`;
-        return `${opener} Under 120 characters.`;
+        return `${opener} 2-3 sentences max.`;
     }
     if (turn === maxTurns - 1) {
-        return `Final turn. Land your point on "${topic}". No loose threads. Under 120 characters.`;
+        return `Final turn. Land your point on "${topic}". No loose threads. 2-3 sentences max.`;
     }
-    return `Respond as ${speakerName}. Stay on: "${topic}". Under 120 characters.`;
+    return `Respond as ${speakerName}. Stay on: "${topic}". 2-3 sentences max.`;
 }
 
 // ─── Orchestration ───
@@ -1645,24 +1643,33 @@ Respond with JSON only:
             0.3,
             null, // no tools
             DISTILL_MODELS, // models optimized for JSON extraction
+            1024, // higher token limit for structured JSON output
         );
     } catch (err) {
         log.error('LLM extraction failed', { error: err.message });
         return 0;
     }
 
-    let jsonStr = rawResponse.trim();
-    if (jsonStr.startsWith('```')) {
-        jsonStr = jsonStr
-            .replace(/^```(?:json)?\n?/, '')
-            .replace(/\n?```$/, '');
-    }
-
+    // Robust JSON extraction — models sometimes wrap JSON in markdown or add commentary
     let parsed;
     try {
-        parsed = JSON.parse(jsonStr);
+        let jsonStr = rawResponse.trim();
+        // Strip markdown code fences
+        jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/m, '').replace(/\n?\s*```\s*$/m, '');
+        // Try direct parse first
+        try {
+            parsed = JSON.parse(jsonStr);
+        } catch {
+            // Extract the first JSON object from the text
+            const match = jsonStr.match(/\{[\s\S]*\}/);
+            if (match) {
+                parsed = JSON.parse(match[0]);
+            } else {
+                throw new Error('No JSON object found');
+            }
+        }
     } catch {
-        log.warn('Failed to parse LLM response as JSON');
+        log.warn('Failed to parse LLM response as JSON', { response: rawResponse.substring(0, 200) });
         return 0;
     }
 

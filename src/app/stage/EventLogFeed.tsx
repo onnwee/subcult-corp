@@ -126,10 +126,12 @@ function DetailedEventRow({
     event,
     isExpanded,
     onToggle,
+    sessionAction,
 }: {
     event: AgentEvent;
     isExpanded: boolean;
     onToggle: () => void;
+    sessionAction?: { label: string; onClick: () => void };
 }) {
     const agentId = event.agent_id as AgentId;
     const agent = AGENTS[agentId];
@@ -205,6 +207,14 @@ function DetailedEventRow({
                                 </span>
                             ))}
                         </div>
+                    )}
+                    {sessionAction && (
+                        <button
+                            onClick={e => { e.stopPropagation(); sessionAction.onClick(); }}
+                            className='mt-1.5 text-[10px] font-mono text-accent hover:text-accent/80 transition-colors'
+                        >
+                            {sessionAction.label}
+                        </button>
                     )}
                 </div>
 
@@ -406,14 +416,29 @@ function LiveDot() {
 
 // ─── Main Component ───
 
+// Kinds that reference a session and can show transcripts
+const CONVERSATION_EVENT_KINDS = new Set([
+    'conversation_started',
+    'conversation_completed',
+    'conversation_failed',
+]);
+
 export function EventLogFeed() {
     const [activeTab, setActiveTab] = useState<FeedTab>('all');
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
     const [showSessions, setShowSessions] = useState(true);
     const [selectedSession, setSelectedSession] = useState<RoundtableSession | null>(null);
+    const [transcriptEventId, setTranscriptEventId] = useState<string | null>(null);
 
     const { events, loading, error } = useEvents({ limit: 500 });
     const { sessions, loading: sessionsLoading } = useConversations(10);
+
+    // Build session lookup by ID for inline transcripts
+    const sessionMap = useMemo(() => {
+        const map = new Map<string, RoundtableSession>();
+        for (const s of sessions) map.set(s.id, s);
+        return map;
+    }, [sessions]);
 
     // Force re-render for relative timestamps
     const [, setTick] = useState(0);
@@ -509,29 +534,28 @@ export function EventLogFeed() {
                         </p>
                     :   <div className='space-y-2'>
                             {sessions.map(s => (
-                                <SessionCard
-                                    key={s.id}
-                                    session={s}
-                                    isSelected={selectedSession?.id === s.id}
-                                    onSelect={() =>
-                                        setSelectedSession(prev =>
-                                            prev?.id === s.id ? null : s,
-                                        )
-                                    }
-                                />
+                                <div key={s.id}>
+                                    <SessionCard
+                                        session={s}
+                                        isSelected={selectedSession?.id === s.id}
+                                        onSelect={() =>
+                                            setSelectedSession(prev =>
+                                                prev?.id === s.id ? null : s,
+                                            )
+                                        }
+                                    />
+                                    {selectedSession?.id === s.id && (
+                                        <div className='mt-2'>
+                                            <TranscriptViewer
+                                                session={selectedSession}
+                                                onClose={() => setSelectedSession(null)}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
                             ))}
                         </div>
                     }
-
-                    {/* Transcript viewer — shown below session list when a session is selected */}
-                    {selectedSession && (
-                        <div className='mt-3'>
-                            <TranscriptViewer
-                                session={selectedSession}
-                                onClose={() => setSelectedSession(null)}
-                            />
-                        </div>
-                    )}
                 </div>
             )}
 
@@ -543,14 +567,37 @@ export function EventLogFeed() {
                 </div>
             :   <div className='h-125 overflow-y-auto scrollbar-thin scrollbar-track-zinc-900 scrollbar-thumb-zinc-700'>
                     <div className='space-y-1.5 px-3 py-2'>
-                        {filteredEvents.map(event => (
-                            <DetailedEventRow
-                                key={event.id}
-                                event={event}
-                                isExpanded={expandedIds.has(event.id)}
-                                onToggle={() => toggleExpanded(event.id)}
-                            />
-                        ))}
+                        {filteredEvents.map(event => {
+                            const sessionId = CONVERSATION_EVENT_KINDS.has(event.kind)
+                                ? (event.metadata?.sessionId as string | undefined)
+                                : undefined;
+                            const matchedSession = sessionId ? sessionMap.get(sessionId) : undefined;
+                            const showingTranscript = transcriptEventId === event.id && matchedSession;
+
+                            return (
+                                <div key={event.id}>
+                                    <DetailedEventRow
+                                        event={event}
+                                        isExpanded={expandedIds.has(event.id)}
+                                        onToggle={() => toggleExpanded(event.id)}
+                                        sessionAction={matchedSession ? {
+                                            label: showingTranscript ? 'Hide Transcript' : 'View Transcript',
+                                            onClick: () => setTranscriptEventId(prev =>
+                                                prev === event.id ? null : event.id,
+                                            ),
+                                        } : undefined}
+                                    />
+                                    {showingTranscript && (
+                                        <div className='mt-1.5 ml-4'>
+                                            <TranscriptViewer
+                                                session={matchedSession}
+                                                onClose={() => setTranscriptEventId(null)}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             }
