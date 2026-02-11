@@ -10,6 +10,9 @@ import type {
     ToolDefinition,
 } from '../types';
 import { sql } from '@/lib/db';
+import { logger } from '@/lib/logger';
+
+const log = logger.child({ module: 'llm' });
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? '';
 
@@ -181,7 +184,7 @@ async function trackUsage(
         `;
     } catch (error) {
         // Log error but don't throw — tracking should never break the main flow
-        console.error('Failed to track LLM usage:', error);
+        log.error('Failed to track LLM usage', { error, model, trackingContext });
     }
 }
 
