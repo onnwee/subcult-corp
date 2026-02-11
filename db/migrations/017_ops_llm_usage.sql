@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS ops_llm_usage (
   cost_usd NUMERIC(10,6),
   agent_id TEXT,
   context TEXT NOT NULL,
-  session_id UUID REFERENCES ops_roundtable_sessions(id),
+  session_id UUID REFERENCES ops_roundtable_sessions(id) ON DELETE SET NULL,
   duration_ms INTEGER,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
