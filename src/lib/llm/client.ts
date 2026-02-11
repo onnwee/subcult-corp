@@ -245,18 +245,16 @@ export async function llmGenerate(
             buildCallOpts(spec) as Parameters<typeof client.callModel>[0],
         );
         const text = (await result.getText())?.trim() ?? '';
-        
+
         // Track usage after successful getText
         const durationMs = Date.now() - startTime;
         const response = await result.getResponse();
         const usedModel = response.model;
         const usage = response.usage;
-        
-        // Fire-and-forget tracking
-        trackUsage(usedModel, usage, durationMs, trackingContext).catch(() => {
-            // Silently ignore tracking failures
-        });
-        
+
+        // Fire-and-forget tracking (errors logged internally by trackUsage)
+        void trackUsage(usedModel, usage, durationMs, trackingContext);
+
         return text.length > 0 ? text : null;
     }
 
@@ -364,17 +362,15 @@ export async function llmGenerateWithTools(
         );
 
         const text = (await result.getText())?.trim() ?? '';
-        
+
         // Track usage after successful getText
         const durationMs = Date.now() - startTime;
         const response = await result.getResponse();
         const usedModel = response.model;
         const usage = response.usage;
-        
-        // Fire-and-forget tracking
-        trackUsage(usedModel, usage, durationMs, trackingContext).catch(() => {
-            // Silently ignore tracking failures
-        });
+
+        // Fire-and-forget tracking (errors logged internally by trackUsage)
+        void trackUsage(usedModel, usage, durationMs, trackingContext);
 
         return { text, toolCalls: toolCallRecords };
     } catch (error: unknown) {
