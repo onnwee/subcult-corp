@@ -331,6 +331,11 @@ export interface LLMGenerateOptions {
     model?: string; // Override default model for this request
     tools?: ToolDefinition[];
     maxToolRounds?: number;
+    trackingContext?: {
+        agentId?: string;
+        context?: string;
+        sessionId?: string;
+    };
 }
 
 // ─── Tool / Skill Types ───

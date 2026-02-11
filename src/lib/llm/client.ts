@@ -9,6 +9,7 @@ import type {
     ToolCallRecord,
     ToolDefinition,
 } from '../types';
+import { sql } from '@/lib/db';
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? '';
 
@@ -141,6 +142,50 @@ function toOpenRouterTools(tools: ToolDefinition[]) {
 }
 
 /**
+ * Track LLM usage to the ops_llm_usage table.
+ * Fire-and-forget: errors are logged but don't affect the caller.
+ */
+async function trackUsage(
+    model: string,
+    usage: { inputTokens: number; outputTokens: number; totalTokens: number; cost?: number | null } | null | undefined,
+    durationMs: number,
+    trackingContext?: { agentId?: string; context?: string; sessionId?: string },
+): Promise<void> {
+    try {
+        const agentId = trackingContext?.agentId ?? 'unknown';
+        const context = trackingContext?.context ?? 'unknown';
+        const sessionId = trackingContext?.sessionId ?? null;
+
+        await sql`
+            INSERT INTO ops_llm_usage (
+                model,
+                prompt_tokens,
+                completion_tokens,
+                total_tokens,
+                cost_usd,
+                agent_id,
+                context,
+                session_id,
+                duration_ms
+            ) VALUES (
+                ${model},
+                ${usage?.inputTokens ?? null},
+                ${usage?.outputTokens ?? null},
+                ${usage?.totalTokens ?? null},
+                ${usage?.cost ?? null},
+                ${agentId},
+                ${context},
+                ${sessionId},
+                ${durationMs}
+            )
+        `;
+    } catch (error) {
+        // Log error but don't throw — tracking should never break the main flow
+        console.error('Failed to track LLM usage:', error);
+    }
+}
+
+/**
  * Generate text from messages, optionally with tools for function calling.
  * Uses the SDK `models` array for native API-level fallback routing.
  * When tools are provided, the SDK auto-executes them and returns the final text.
@@ -154,9 +199,11 @@ export async function llmGenerate(
         maxTokens = 200,
         model,
         tools,
+        trackingContext,
     } = options;
 
     const client = getClient();
+    const startTime = Date.now();
 
     // Separate system instructions from conversation messages
     const systemMessage = messages.find(m => m.role === 'system');
@@ -198,6 +245,18 @@ export async function llmGenerate(
             buildCallOpts(spec) as Parameters<typeof client.callModel>[0],
         );
         const text = (await result.getText())?.trim() ?? '';
+        
+        // Track usage after successful getText
+        const durationMs = Date.now() - startTime;
+        const response = await result.getResponse();
+        const usedModel = response.model;
+        const usage = response.usage;
+        
+        // Fire-and-forget tracking
+        trackUsage(usedModel, usage, durationMs, trackingContext).catch(() => {
+            // Silently ignore tracking failures
+        });
+        
         return text.length > 0 ? text : null;
     }
 
@@ -247,9 +306,11 @@ export async function llmGenerateWithTools(
         model,
         tools = [],
         maxToolRounds = 3,
+        trackingContext,
     } = options;
 
     const client = getClient();
+    const startTime = Date.now();
     const modelList = model ? [normalizeModel(model)] : LLM_MODELS;
 
     const systemMessage = messages.find(m => m.role === 'system');
@@ -303,6 +364,17 @@ export async function llmGenerateWithTools(
         );
 
         const text = (await result.getText())?.trim() ?? '';
+        
+        // Track usage after successful getText
+        const durationMs = Date.now() - startTime;
+        const response = await result.getResponse();
+        const usedModel = response.model;
+        const usage = response.usage;
+        
+        // Fire-and-forget tracking
+        trackUsage(usedModel, usage, durationMs, trackingContext).catch(() => {
+            // Silently ignore tracking failures
+        });
 
         return { text, toolCalls: toolCallRecords };
     } catch (error: unknown) {
