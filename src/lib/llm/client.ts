@@ -3,6 +3,7 @@
 // via a single, type-safe interface.
 // Supports both text-only generation and tool-calling (function calling).
 import { OpenRouter, ToolType } from '@openrouter/sdk';
+import type { OpenResponsesUsage } from '@openrouter/sdk/models';
 import type {
     LLMGenerateOptions,
     LLMToolResult,
@@ -150,7 +151,7 @@ function toOpenRouterTools(tools: ToolDefinition[]) {
  */
 async function trackUsage(
     model: string,
-    usage: { inputTokens: number; outputTokens: number; totalTokens: number; cost?: number | null } | null | undefined,
+    usage: OpenResponsesUsage | null | undefined,
     durationMs: number,
     trackingContext?: { agentId?: string; context?: string; sessionId?: string },
 ): Promise<void> {
@@ -252,7 +253,7 @@ export async function llmGenerate(
         // Track usage after successful getText
         const durationMs = Date.now() - startTime;
         const response = await result.getResponse();
-        const usedModel = response.model;
+        const usedModel = response.model || 'unknown';
         const usage = response.usage;
 
         // Fire-and-forget tracking (errors logged internally by trackUsage)
@@ -369,7 +370,7 @@ export async function llmGenerateWithTools(
         // Track usage after successful getText
         const durationMs = Date.now() - startTime;
         const response = await result.getResponse();
-        const usedModel = response.model;
+        const usedModel = response.model || 'unknown';
         const usage = response.usage;
 
         // Fire-and-forget tracking (errors logged internally by trackUsage)
