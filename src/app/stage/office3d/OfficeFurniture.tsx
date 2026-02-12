@@ -1,10 +1,10 @@
 // office3d/OfficeFurniture.tsx — desks, monitors, chairs, coffee machine, server rack, plants
 'use client';
 
-import { useMemo, useRef } from 'react';
+import { useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
-import { DESK_CONFIGS, PROPS, COLORS, AGENT_COLORS } from './constants';
+import { DESK_CONFIGS, PROPS, COLORS, AGENT_COLORS, SERVER_RACK_ACTIVE_LEDS } from './constants';
 import type { AgentId } from '@/lib/types';
 
 // ─── Desk with Monitor ───
@@ -126,7 +126,7 @@ function CoffeeMachine({ onClick }: { onClick?: () => void }) {
                 />
             </mesh>
             {/* Steam */}
-            <mesh ref={steamRef as React.RefObject<THREE.Mesh>} position={[0, 1.5, 0]}>
+            <mesh ref={steamRef} position={[0, 1.5, 0]}>
                 <sphereGeometry args={[0.08, 8, 8]} />
                 <meshStandardMaterial color='white' transparent opacity={0.15} />
             </mesh>
@@ -140,7 +140,7 @@ function ServerRack({ onClick }: { onClick?: () => void }) {
 
     useFrame(({ clock }) => {
         ledsRef.current.forEach((led, i) => {
-            if (led && i < 3) {
+            if (led && i < SERVER_RACK_ACTIVE_LEDS) {
                 const mat = led.material as THREE.MeshStandardMaterial;
                 mat.emissiveIntensity = 0.5 + Math.sin(clock.elapsedTime * (2 + i * 0.5)) * 0.3;
             }
@@ -168,9 +168,9 @@ function ServerRack({ onClick }: { onClick?: () => void }) {
                     >
                         <sphereGeometry args={[0.025, 6, 6]} />
                         <meshStandardMaterial
-                            color={i < 3 ? COLORS.green : COLORS.surface1}
-                            emissive={i < 3 ? COLORS.green : COLORS.surface1}
-                            emissiveIntensity={i < 3 ? 0.8 : 0.1}
+                            color={i < SERVER_RACK_ACTIVE_LEDS ? COLORS.green : COLORS.surface1}
+                            emissive={i < SERVER_RACK_ACTIVE_LEDS ? COLORS.green : COLORS.surface1}
+                            emissiveIntensity={i < SERVER_RACK_ACTIVE_LEDS ? 0.8 : 0.1}
                         />
                     </mesh>
                 </group>

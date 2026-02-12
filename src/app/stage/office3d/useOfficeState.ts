@@ -1,11 +1,20 @@
 // office3d/useOfficeState.ts — combined state management for the 3D office
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSystemStats, useConversations, useInterval } from '../hooks';
 import { AGENTS } from '@/lib/agents';
 import type { AgentId, AgentEvent, Mission } from '@/lib/types';
-import { DESK_CONFIGS, PROPS, type AgentBehavior } from './constants';
+import {
+    DESK_CONFIGS,
+    PROPS,
+    AGENT_MOVE_SPEED,
+    AGENT_ARRIVED_THRESHOLD,
+    SPEECH_BUBBLE_DURATION_FRAMES,
+    BEHAVIOR_UPDATE_INTERVAL_MIN,
+    BEHAVIOR_UPDATE_INTERVAL_MAX,
+    type AgentBehavior,
+} from './constants';
 
 // ─── Agent 3D State ───
 export interface Agent3DState {
@@ -58,8 +67,6 @@ function createInitialAgents(): Agent3DState[] {
     });
 }
 
-const BEHAVIORS: AgentBehavior[] = ['idle', 'working', 'chatting', 'coffee', 'celebrating', 'walking', 'thinking'];
-
 export function useOfficeState() {
     const { stats } = useSystemStats();
     const { sessions } = useConversations(5);
@@ -75,10 +82,17 @@ export function useOfficeState() {
         async function fetchEvents() {
             try {
                 const res = await fetch('/api/ops/events?limit=30');
-                if (!res.ok) return;
+                if (!res.ok) {
+                    // eslint-disable-next-line no-console
+                    console.error('Failed to fetch events:', res.statusText);
+                    return;
+                }
                 const data = await res.json();
                 setRecentEvents(data.events ?? []);
-            } catch { /* ignore */ }
+            } catch (err) {
+                // eslint-disable-next-line no-console
+                console.error('Error fetching events:', err);
+            }
         }
         fetchEvents();
     }, []);
@@ -88,10 +102,17 @@ export function useOfficeState() {
         async function fetchMissions() {
             try {
                 const res = await fetch('/api/ops/missions?status=running&limit=20');
-                if (!res.ok) return;
+                if (!res.ok) {
+                    // eslint-disable-next-line no-console
+                    console.error('Failed to fetch missions:', res.statusText);
+                    return;
+                }
                 const data = await res.json();
                 setActiveMissions(data.missions ?? []);
-            } catch { /* ignore */ }
+            } catch (err) {
+                // eslint-disable-next-line no-console
+                console.error('Error fetching missions:', err);
+            }
         }
         fetchMissions();
     }, []);
@@ -104,7 +125,11 @@ export function useOfficeState() {
                 const lastSession = sessions.find(s => s.status === 'completed' || s.status === 'running');
                 if (!lastSession) return;
                 const res = await fetch(`/api/ops/turns?session_id=${lastSession.id}`);
-                if (!res.ok) return;
+                if (!res.ok) {
+                    // eslint-disable-next-line no-console
+                    console.error('Failed to fetch turns:', res.statusText);
+                    return;
+                }
                 const data = await res.json();
                 if (data.turns?.length > 0) {
                     setRecentTurns(data.turns.slice(-6).map((t: { speaker: string; dialogue: string }) => ({
@@ -112,12 +137,15 @@ export function useOfficeState() {
                         dialogue: t.dialogue,
                     })));
                 }
-            } catch { /* ignore */ }
+            } catch (err) {
+                // eslint-disable-next-line no-console
+                console.error('Error fetching turns:', err);
+            }
         }
         fetchTurns();
     }, [sessions]);
 
-    // Derive behavior from real data + randomized fallback
+    // Derive behavior from real data (deterministic fallback to 'idle')
     const deriveBehavior = useCallback((agentId: AgentId): AgentBehavior => {
         // Check if agent has active mission
         const hasMission = activeMissions.some(m => m.created_by === agentId);
@@ -132,8 +160,8 @@ export function useOfficeState() {
             if (latest.kind.includes('analysis') || latest.kind.includes('research')) return 'thinking';
         }
 
-        // Random fallback
-        return BEHAVIORS[Math.floor(Math.random() * BEHAVIORS.length)];
+        // Deterministic fallback to idle when no activity data
+        return 'idle';
     }, [activeMissions, recentEvents]);
 
     // Cycle behaviors periodically
@@ -173,11 +201,11 @@ export function useOfficeState() {
                         behavior: newBehavior,
                         targetPosition,
                         speechBubble,
-                        speechTick: speechBubble ? 40 : 0,
+                        speechTick: speechBubble ? SPEECH_BUBBLE_DURATION_FRAMES : 0,
                     };
                 }),
             );
-        }, 8000 + Math.random() * 5000);
+        }, BEHAVIOR_UPDATE_INTERVAL_MIN + Math.random() * (BEHAVIOR_UPDATE_INTERVAL_MAX - BEHAVIOR_UPDATE_INTERVAL_MIN));
 
         return () => clearInterval(interval);
     }, [deriveBehavior, draggingAgent, recentTurns]);
@@ -193,12 +221,11 @@ export function useOfficeState() {
                 const dist = Math.sqrt(dx * dx + dz * dz);
 
                 let newPosition = agent.position;
-                if (dist > 0.1) {
-                    const speed = 0.08;
+                if (dist > AGENT_ARRIVED_THRESHOLD) {
                     newPosition = [
-                        agent.position[0] + (dx / dist) * Math.min(speed, dist),
+                        agent.position[0] + (dx / dist) * Math.min(AGENT_MOVE_SPEED, dist),
                         0.01,
-                        agent.position[2] + (dz / dist) * Math.min(speed, dist),
+                        agent.position[2] + (dz / dist) * Math.min(AGENT_MOVE_SPEED, dist),
                     ];
                 }
 

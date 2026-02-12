@@ -1,9 +1,9 @@
 // office3d/OfficeWhiteboard.tsx — interactive whiteboard with live ops data texture
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import * as THREE from 'three';
-import { PROPS, COLORS } from './constants';
+import { PROPS } from './constants';
 import type { SystemStats } from '../hooks';
 import { AGENTS } from '@/lib/agents';
 import type { AgentId } from '@/lib/types';
@@ -115,6 +115,13 @@ export function OfficeWhiteboard({
 
         return new THREE.CanvasTexture(canvas);
     }, [stats]);
+
+    // Dispose texture on unmount or when stats change
+    useEffect(() => {
+        return () => {
+            texture.dispose();
+        };
+    }, [texture]);
 
     return (
         <group position={PROPS.whiteboard} onClick={onClick}>

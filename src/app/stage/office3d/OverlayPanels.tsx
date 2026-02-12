@@ -1,12 +1,12 @@
 // office3d/OverlayPanels.tsx — HTML overlay panels for agent/prop details
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { AGENTS } from '@/lib/agents';
 import type { AgentId, AgentEvent, Mission } from '@/lib/types';
 import type { SelectedObject, Agent3DState } from './useOfficeState';
 import type { SystemStats } from '../hooks';
-import { BEHAVIOR_EMOJIS } from './constants';
+import { BEHAVIOR_EMOJIS, AGENT_MEMORY_BAR_MULTIPLIER, AGENT_MEMORY_BAR_MAX_WIDTH } from './constants';
 
 // ─── Panel container ───
 function Panel({
@@ -20,6 +20,8 @@ function Panel({
     children: React.ReactNode;
     color?: string;
 }) {
+    const panelRef = useRef<HTMLDivElement>(null);
+
     // Close on Escape
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
@@ -29,26 +31,46 @@ function Panel({
         return () => window.removeEventListener('keydown', handler);
     }, [onClose]);
 
+    // Focus management
+    useEffect(() => {
+        panelRef.current?.focus();
+    }, []);
+
     return (
-        <div className='absolute top-4 right-4 w-80 max-h-[70vh] overflow-y-auto z-50 rounded-xl border border-zinc-700/50 bg-zinc-900/95 backdrop-blur-sm shadow-2xl'>
-            {/* Header */}
-            <div className='flex items-center justify-between px-4 py-3 border-b border-zinc-800'>
-                <div className='flex items-center gap-2'>
-                    {color && (
-                        <div className='w-2 h-2 rounded-full' style={{ backgroundColor: color }} />
-                    )}
-                    <span className='text-sm font-semibold text-zinc-200'>{title}</span>
+        <div
+            className='fixed inset-0 z-40 flex items-start justify-end pt-4 pr-4 bg-black/40'
+            onClick={(e) => {
+                // Only close when clicking directly on the backdrop, not inside the panel
+                if (e.target === e.currentTarget) {
+                    onClose();
+                }
+            }}
+        >
+            <div
+                ref={panelRef}
+                tabIndex={-1}
+                className='w-80 max-h-[70vh] overflow-y-auto rounded-xl border border-zinc-700/50 bg-zinc-900/95 backdrop-blur-sm shadow-2xl outline-none'
+            >
+                {/* Header */}
+                <div className='flex items-center justify-between px-4 py-3 border-b border-zinc-800'>
+                    <div className='flex items-center gap-2'>
+                        {color && (
+                            <div className='w-2 h-2 rounded-full' style={{ backgroundColor: color }} />
+                        )}
+                        <span className='text-sm font-semibold text-zinc-200'>{title}</span>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        className='text-zinc-500 hover:text-zinc-300 text-lg leading-none px-1'
+                        aria-label='Close panel'
+                    >
+                        ×
+                    </button>
                 </div>
-                <button
-                    onClick={onClose}
-                    className='text-zinc-500 hover:text-zinc-300 text-lg leading-none px-1'
-                >
-                    ×
-                </button>
-            </div>
-            {/* Content */}
-            <div className='p-4 space-y-3'>
-                {children}
+                {/* Content */}
+                <div className='p-4 space-y-3'>
+                    {children}
+                </div>
             </div>
         </div>
     );
@@ -87,7 +109,10 @@ function AgentPanel({
             {/* Profile */}
             <div className='space-y-1'>
                 <div className='flex items-center gap-2'>
-                    <span className='text-xs px-2 py-0.5 rounded-full' style={{ backgroundColor: config.color + '22', color: config.color }}>
+                    <span className='text-xs px-2 py-0.5 rounded-full' style={{
+                        backgroundColor: `${config.color}22`,
+                        color: config.color
+                    }}>
                         {config.role}
                     </span>
                     {agent3d && (
@@ -169,7 +194,7 @@ function WhiteboardPanel({
                                         <div
                                             className='h-full rounded-full transition-all'
                                             style={{
-                                                width: `${Math.min(count * 10, 100)}%`,
+                                                width: `${Math.min(count * AGENT_MEMORY_BAR_MULTIPLIER, AGENT_MEMORY_BAR_MAX_WIDTH)}%`,
                                                 backgroundColor: agent?.color ?? '#666',
                                                 opacity: 0.6,
                                             }}

@@ -100,6 +100,16 @@ export const BEHAVIOR_EMOJIS: Record<AgentBehavior, string> = {
     thinking: '💭',
 };
 
+// ─── Animation & Behavior Constants ───
+export const AGENT_MOVE_SPEED = 0.08;
+export const AGENT_ARRIVED_THRESHOLD = 0.1; // distance in units
+export const SPEECH_BUBBLE_DURATION_FRAMES = 40; // ~2 seconds at 20 FPS
+export const BEHAVIOR_UPDATE_INTERVAL_MIN = 8000; // ms
+export const BEHAVIOR_UPDATE_INTERVAL_MAX = 13000; // ms
+export const AGENT_MEMORY_BAR_MULTIPLIER = 10;
+export const AGENT_MEMORY_BAR_MAX_WIDTH = 100;
+export const SERVER_RACK_ACTIVE_LEDS = 3; // Number of blinking LEDs on server rack
+
 // ─── Sky Colors by Time of Day ───
 export const SKY_COLORS = {
     day:   { top: '#1e3a5f', bottom: '#0f172a' },

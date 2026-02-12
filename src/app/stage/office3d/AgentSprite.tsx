@@ -1,11 +1,11 @@
 // office3d/AgentSprite.tsx — billboarded agent sprites with canvas-generated textures
 'use client';
 
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useEffect } from 'react';
 import * as THREE from 'three';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import { Billboard, Text } from '@react-three/drei';
-import { BEHAVIOR_EMOJIS, type AgentBehavior } from './constants';
+import { BEHAVIOR_EMOJIS, COLORS } from './constants';
 import type { Agent3DState } from './useOfficeState';
 
 // Generate a pixel-art agent sprite texture on canvas
@@ -70,7 +70,7 @@ export function AgentSprite({
 }: {
     agent: Agent3DState;
     onClick?: () => void;
-    onPointerDown?: (e: THREE.Event) => void;
+    onPointerDown?: (e: ThreeEvent<PointerEvent>) => void;
     onPointerEnter?: () => void;
     onPointerLeave?: () => void;
 }) {
@@ -79,6 +79,13 @@ export function AgentSprite({
         () => generateAgentTexture(agent.color, agent.skinColor),
         [agent.color, agent.skinColor],
     );
+
+    // Dispose texture on unmount or when dependencies change
+    useEffect(() => {
+        return () => {
+            texture.dispose();
+        };
+    }, [texture]);
 
     // Bob animation
     useFrame(({ clock }) => {
@@ -132,7 +139,6 @@ export function AgentSprite({
                     color={agent.color}
                     anchorX='center'
                     anchorY='top'
-                    font='/fonts/GeistMono-Bold.otf'
                     fontWeight='bold'
                 >
                     {agent.name}
@@ -174,7 +180,7 @@ function SpeechBubble3D({ text, color }: { text: string; color: string }) {
             <mesh>
                 <planeGeometry args={[2.2, 0.5]} />
                 <meshStandardMaterial
-                    color='#1a1a2e'
+                    color={COLORS.mantle}
                     transparent
                     opacity={0.92}
                 />

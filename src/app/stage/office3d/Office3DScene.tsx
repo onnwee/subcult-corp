@@ -3,7 +3,6 @@
 
 import { Suspense, useCallback, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
-import * as THREE from 'three';
 import { OfficeFloor } from './OfficeFloor';
 import { OfficeWalls } from './OfficeWalls';
 import { OfficeLighting } from './OfficeLighting';
@@ -11,7 +10,7 @@ import { OfficeFurniture } from './OfficeFurniture';
 import { OfficeWhiteboard } from './OfficeWhiteboard';
 import { AgentSprite } from './AgentSprite';
 import { OverlayPanels } from './OverlayPanels';
-import { useOfficeState, type SelectedObject } from './useOfficeState';
+import { useOfficeState } from './useOfficeState';
 import { useTimeOfDay } from '../hooks';
 import { CAMERA, COLORS } from './constants';
 import type { AgentId } from '@/lib/types';
@@ -28,11 +27,9 @@ function OfficeSceneContent({
         stats,
         setSelected,
         setDraggingAgent,
-        moveAgent,
         setHoveredObject,
     } = state;
 
-    const floorRef = useRef<THREE.Mesh>(null);
     const isDragging = useRef(false);
 
     const handleDeskClick = useCallback(
@@ -68,7 +65,7 @@ function OfficeSceneContent({
             isDragging.current = false;
             setDraggingAgent(agentId);
 
-            const handlePointerMove = (e: PointerEvent) => {
+            const handlePointerMove = (_e: PointerEvent) => {
                 isDragging.current = true;
                 // We handle dragging via raycasting in the frame loop if needed
                 // For simplicity, we use a basic approach
@@ -102,9 +99,18 @@ function OfficeSceneContent({
             <color attach='background' args={[COLORS.crust]} />
             <fog attach='fog' args={[COLORS.crust, 25, 50]} />
 
-            {/* Floor */}
-            <group onClick={handleFloorClick}>
+            {/* Floor with click plane for deselection */}
+            <group>
                 <OfficeFloor />
+                {/* Invisible interaction plane to reliably capture floor clicks */}
+                <mesh
+                    rotation={[-Math.PI / 2, 0, 0]}
+                    position={[0, 0.01, 0]}
+                    onClick={handleFloorClick}
+                >
+                    <planeGeometry args={[100, 100]} />
+                    <meshBasicMaterial visible={false} transparent opacity={0} />
+                </mesh>
             </group>
 
             {/* Walls */}
@@ -235,23 +241,62 @@ export function Office3DScene() {
             </div>
 
             {/* 3D Canvas */}
-            <div className='relative' style={{ height: '420px' }}>
-                <Suspense fallback={<LoadingScreen />}>
-                    <Canvas
-                        orthographic
-                        camera={{
-                            position: CAMERA.position,
-                            zoom: CAMERA.zoom,
-                            near: CAMERA.near,
-                            far: CAMERA.far,
-                        }}
-                        style={{ background: COLORS.crust }}
-                        gl={{ antialias: true, alpha: false }}
-                        dpr={[1, 2]}
-                    >
-                        <OfficeSceneContent period={period} state={state} />
-                    </Canvas>
-                </Suspense>
+            <div
+                className='relative'
+                style={{ height: 'min(420px, 60vh)' }}
+                role='region'
+                aria-label='Interactive 3D office scene showing agent desks, behaviors, and operational stats'
+            >
+                {(() => {
+                    // Detect WebGL support before attempting to render the 3D canvas.
+                    if (typeof window === 'undefined') {
+                        // On the server (or during very early hydration), avoid touching the DOM.
+                        return (
+                            <div className='flex h-full items-center justify-center px-4 text-center text-xs text-zinc-500'>
+                                Loading 3D scene...
+                            </div>
+                        );
+                    }
+
+                    try {
+                        const canvas = document.createElement('canvas');
+                        const gl =
+                            canvas.getContext('webgl') ||
+                            // Some older browsers expose WebGL only via this prefix.
+                            canvas.getContext('experimental-webgl');
+
+                        if (!gl) {
+                            throw new Error('WebGL not supported');
+                        }
+                    } catch {
+                        return (
+                            <div className='flex h-full items-center justify-center px-4 text-center text-xs text-zinc-400'>
+                                Your browser does not support WebGL, which is required to display the
+                                interactive 3D office. Please use a modern browser and ensure that
+                                hardware acceleration is enabled.
+                            </div>
+                        );
+                    }
+
+                    return (
+                        <Suspense fallback={<LoadingScreen />}>
+                            <Canvas
+                                orthographic
+                                camera={{
+                                    position: CAMERA.position,
+                                    zoom: CAMERA.zoom,
+                                    near: CAMERA.near,
+                                    far: CAMERA.far,
+                                }}
+                                style={{ background: COLORS.crust }}
+                                gl={{ antialias: true, alpha: false }}
+                                dpr={[1, 2]}
+                            >
+                                <OfficeSceneContent period={period} state={state} />
+                            </Canvas>
+                        </Suspense>
+                    );
+                })()}
 
                 {/* Overlay panels (HTML positioned over canvas) */}
                 <OverlayPanels

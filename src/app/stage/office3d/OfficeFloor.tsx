@@ -1,7 +1,7 @@
 // office3d/OfficeFloor.tsx — ground plane with grid lines
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { OFFICE, COLORS } from './constants';
 
@@ -38,6 +38,13 @@ export function OfficeFloor() {
         texture.repeat.set(1, 1);
         return texture;
     }, []);
+
+    // Dispose texture on unmount
+    useEffect(() => {
+        return () => {
+            gridTexture.dispose();
+        };
+    }, [gridTexture]);
 
     return (
         <group>

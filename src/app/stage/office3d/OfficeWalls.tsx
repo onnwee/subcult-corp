@@ -1,7 +1,7 @@
 // office3d/OfficeWalls.tsx — back wall, side walls, window
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { OFFICE, COLORS, PROPS, SKY_COLORS } from './constants';
 
@@ -76,6 +76,13 @@ function Poster() {
         return new THREE.CanvasTexture(canvas);
     }, []);
 
+    // Dispose texture on unmount
+    useEffect(() => {
+        return () => {
+            texture.dispose();
+        };
+    }, [texture]);
+
     return (
         <mesh position={PROPS.poster}>
             <planeGeometry args={[1.2, 1.7]} />
@@ -140,6 +147,13 @@ function WallClock() {
 
         return new THREE.CanvasTexture(canvas);
     }, []);
+
+    // Dispose texture on unmount
+    useEffect(() => {
+        return () => {
+            texture.dispose();
+        };
+    }, [texture]);
 
     return (
         <mesh position={PROPS.clock}>
