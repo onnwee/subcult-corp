@@ -18,28 +18,36 @@ export interface SSEStreamController {
  */
 export function createSSEStream(): SSEStreamController {
     const encoder = new TextEncoder();
-    let writer: WritableStreamDefaultWriter<string>;
 
-    const stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-            // Create a writable stream that encodes strings and enqueues to the readable stream
-            const writable = new WritableStream<string>({
-                write(chunk) {
-                    controller.enqueue(encoder.encode(chunk));
-                },
-                close() {
-                    controller.close();
-                },
-                abort(reason) {
-                    controller.error(reason);
-                },
-            });
-
-            writer = writable.getWriter();
+    // Create a writable stream first
+    let controller: ReadableStreamDefaultController<Uint8Array>;
+    const writable = new WritableStream<string>({
+        write(chunk) {
+            if (controller) {
+                controller.enqueue(encoder.encode(chunk));
+            }
+        },
+        close() {
+            if (controller) {
+                controller.close();
+            }
+        },
+        abort(reason) {
+            if (controller) {
+                controller.error(reason);
+            }
         },
     });
 
-    return { stream, writer: writer! };
+    const writer = writable.getWriter();
+
+    const stream = new ReadableStream<Uint8Array>({
+        start(ctrl) {
+            controller = ctrl;
+        },
+    });
+
+    return { stream, writer };
 }
 
 /**
@@ -68,16 +76,26 @@ export function keepAlive(
     writer: WritableStreamDefaultWriter<string>,
     intervalMs: number,
 ): () => void {
+    let isActive = true;
     const interval = setInterval(async () => {
+        if (!isActive) {
+            clearInterval(interval);
+            return;
+        }
         try {
             await writer.write(':keepalive\n\n');
         } catch (error) {
             // Writer is likely closed, clear the interval
+            console.error('SSE keepalive error:', error);
+            isActive = false;
             clearInterval(interval);
         }
     }, intervalMs);
 
-    return () => clearInterval(interval);
+    return () => {
+        isActive = false;
+        clearInterval(interval);
+    };
 }
 
 /**
