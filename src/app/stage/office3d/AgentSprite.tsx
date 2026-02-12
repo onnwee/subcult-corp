@@ -132,7 +132,7 @@ export function AgentSprite({
                     color={agent.color}
                     anchorX='center'
                     anchorY='top'
-                    font='/fonts/GeistMono-Bold.otf'
+                    font='/fonts/GeistMono-Latin.woff2'
                     fontWeight='bold'
                 >
                     {agent.name}
