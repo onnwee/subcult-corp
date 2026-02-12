@@ -40,6 +40,7 @@ const KIND_ICONS: Record<string, string> = {
     alert_sent: '🔔',
     agent_session: '🟢',
     health_check: '🩺',
+    health_score: '📊',
     default: '📡',
 };
 
@@ -67,6 +68,7 @@ const KIND_LABELS: Record<string, string> = {
     alert_sent: 'Alert Sent',
     agent_session: 'Agent Session',
     health_check: 'Health Check',
+    health_score: 'Health Score',
 };
 
 // ─── Helpers ───
@@ -105,6 +107,7 @@ function getKindSeverity(
 ): 'info' | 'success' | 'warning' | 'error' {
     if (kind.includes('failed') || kind.includes('rejected')) return 'error';
     if (kind === 'model_fallback' || kind === 'alert_sent') return 'warning';
+    if (kind === 'health_score') return 'info';
     if (kind.includes('completed') || kind.includes('approved'))
         return 'success';
     if (kind.includes('fired') || kind.includes('started')) return 'warning';
@@ -403,6 +406,7 @@ const TAB_FILTERS: Record<FeedTab, string[] | null> = {
         'alert_sent',
         'agent_session',
         'health_check',
+        'health_score',
     ],
 };
 
