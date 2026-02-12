@@ -274,6 +274,7 @@ export function useEventStream(filters?: {
     const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
         null,
     );
+    const lastEventIdRef = useRef<string | null>(null);
     const maxCap = filters?.limit ?? 500;
     const agentId = filters?.agent_id;
     const kind = filters?.kind;
@@ -289,6 +290,10 @@ export function useEventStream(filters?: {
                 `/api/ops/events?${params}`,
             );
             setEvents(data.events);
+            // Track the newest event ID for SSE continuation
+            if (data.events.length > 0) {
+                lastEventIdRef.current = data.events[0].id;
+            }
             setError(null);
         } catch (err) {
             setError((err as Error).message);
@@ -301,10 +306,22 @@ export function useEventStream(filters?: {
         let isMounted = true;
 
         function connect() {
-            // Build SSE URL
+            // Clear any existing reconnect timer to prevent concurrent attempts
+            if (reconnectTimerRef.current) {
+                clearTimeout(reconnectTimerRef.current);
+                reconnectTimerRef.current = null;
+            }
+
+            // Build SSE URL with last_event_id from ref if available
             const params = new URLSearchParams();
             if (agentId) params.set('agent_id', agentId);
             if (kind) params.set('kind', kind);
+            
+            // Add last_event_id to continue from where we left off
+            if (lastEventIdRef.current) {
+                params.set('last_event_id', lastEventIdRef.current);
+            }
+            
             const url = `/api/ops/events/stream${params.toString() ? `?${params}` : ''}`;
 
             const es = new EventSource(url);
@@ -314,6 +331,8 @@ export function useEventStream(filters?: {
                 if (!isMounted) return;
                 try {
                     const parsed = JSON.parse(e.data) as AgentEvent;
+                    // Update ref with newest event ID
+                    lastEventIdRef.current = parsed.id;
                     setEvents(prev => {
                         const next = [parsed, ...prev];
                         return next.length > maxCap ?
@@ -352,15 +371,26 @@ export function useEventStream(filters?: {
                         1000 * Math.pow(2, reconnectAttemptsRef.current - 1),
                         30000,
                     );
+                    // Clear existing timer before scheduling new one
+                    if (reconnectTimerRef.current) {
+                        clearTimeout(reconnectTimerRef.current);
+                    }
                     reconnectTimerRef.current = setTimeout(connect, delay);
                 }
             };
         }
 
-        connect();
-
-        // Initial data load via HTTP (SSE only gets new events)
-        pollFallback();
+        // Initial data load via HTTP first to establish snapshot
+        pollFallback()
+            .then(() => {
+                // Then connect SSE stream to continue from snapshot
+                if (isMounted) connect();
+            })
+            .catch(err => {
+                // Log error but still try to connect SSE
+                console.warn('Initial event fetch failed, connecting SSE anyway:', err);
+                if (isMounted) connect();
+            });
 
         return () => {
             isMounted = false;

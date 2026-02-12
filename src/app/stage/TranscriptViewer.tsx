@@ -236,12 +236,8 @@ export function TranscriptViewer({
             {/* Printable document body */}
             <div
                 ref={el => {
-                    (
-                        printRef as React.MutableRefObject<HTMLDivElement | null>
-                    ).current = el;
-                    (
-                        scrollRef as React.MutableRefObject<HTMLDivElement | null>
-                    ).current = el;
+                    printRef.current = el;
+                    scrollRef.current = el;
                 }}
                 className='max-h-[40rem] overflow-y-auto scrollbar-thin scrollbar-track-zinc-900 scrollbar-thumb-zinc-700'
             >

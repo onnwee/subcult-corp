@@ -21,19 +21,21 @@ export async function GET(req: NextRequest) {
 
     const { stream, writer } = createSSEStream();
 
-    // Track cursor — start after the given event ID's timestamp, or now
-    let cursor: string | null = null;
+    // Track cursor — use composite (created_at, id) to avoid skipping events with same timestamp
+    let cursorCreatedAt: string | null = null;
+    let cursorId: string | null = null;
 
-    // If a last_event_id was provided, look up its created_at as the cursor
+    // If a last_event_id was provided, look up its created_at and id as the cursor
     if (lastEventId) {
         try {
             const rows = await sql`
-                SELECT created_at FROM ops_agent_events
+                SELECT created_at, id FROM ops_agent_events
                 WHERE id = ${lastEventId}
                 LIMIT 1
             `;
             if (rows.length > 0) {
-                cursor = rows[0].created_at;
+                cursorCreatedAt = rows[0].created_at;
+                cursorId = rows[0].id;
             }
         } catch {
             // If lookup fails, start from now
@@ -41,8 +43,9 @@ export async function GET(req: NextRequest) {
     }
 
     // If no cursor yet, use current time
-    if (!cursor) {
-        cursor = new Date().toISOString();
+    if (!cursorCreatedAt) {
+        cursorCreatedAt = new Date().toISOString();
+        cursorId = null;
     }
 
     // Start keepalive
@@ -56,18 +59,23 @@ export async function GET(req: NextRequest) {
         if (!isActive) return;
 
         try {
+            // Query using composite cursor (created_at, id) to avoid skipping events
             const rows = await sql`
                 SELECT * FROM ops_agent_events
-                WHERE created_at > ${cursor}
+                WHERE (
+                    created_at > ${cursorCreatedAt}
+                    ${cursorId ? sql`OR (created_at = ${cursorCreatedAt} AND id > ${cursorId})` : sql``}
+                )
                 ${agentId ? sql`AND agent_id = ${agentId}` : sql``}
                 ${kind ? sql`AND kind = ${kind}` : sql``}
-                ORDER BY created_at ASC
+                ORDER BY created_at ASC, id ASC
                 LIMIT 50
             `;
 
             for (const row of rows) {
                 await sendEvent(writer, 'event', row);
-                cursor = row.created_at;
+                cursorCreatedAt = row.created_at;
+                cursorId = row.id;
             }
         } catch (err) {
             // Stream may be closed by client
