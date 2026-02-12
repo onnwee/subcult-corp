@@ -4,6 +4,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type {
     AgentEvent,
+    AgentRelationship,
+    MemoryEntry,
+    MemoryType,
     Mission,
     MissionStep,
     RoundtableSession,
@@ -615,6 +618,103 @@ export function useTimeOfDay() {
     }, []);
 
     return period;
+}
+
+// ─── useMemories — fetch + poll agent memories ───
+
+export interface MemoryFilters {
+    agent_id?: string;
+    type?: MemoryType | MemoryType[];
+    min_confidence?: number;
+    tags?: string[];
+    search?: string;
+    limit?: number;
+    offset?: number;
+}
+
+export function useMemories(filters?: MemoryFilters) {
+    const [memories, setMemories] = useState<MemoryEntry[]>([]);
+    const [total, setTotal] = useState(0);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    const serializedFilters = JSON.stringify(filters ?? {});
+
+    const fetchMemories = useCallback(async () => {
+        try {
+            const params = new URLSearchParams();
+            const f: MemoryFilters = JSON.parse(serializedFilters);
+
+            if (f.agent_id) params.set('agent_id', f.agent_id);
+            if (f.type) {
+                const types = Array.isArray(f.type) ? f.type.join(',') : f.type;
+                params.set('type', types);
+            }
+            if (f.min_confidence !== undefined)
+                params.set('min_confidence', String(f.min_confidence));
+            if (f.tags?.length) params.set('tags', f.tags.join(','));
+            if (f.search) params.set('search', f.search);
+            if (f.limit) params.set('limit', String(f.limit));
+            if (f.offset) params.set('offset', String(f.offset));
+
+            const data = await fetchJson<{
+                memories: MemoryEntry[];
+                total: number;
+            }>(`/api/ops/memory?${params}`);
+            setMemories(data.memories);
+            setTotal(data.total);
+            setError(null);
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setLoading(false);
+        }
+    }, [serializedFilters]);
+
+    useEffect(() => {
+        setLoading(true);
+        fetchMemories();
+    }, [fetchMemories]);
+
+    // Poll every 30 seconds
+    useInterval(() => {
+        fetchMemories();
+    }, 30000);
+
+    return { memories, total, loading, error };
+}
+
+// ─── useRelationships — fetch + poll agent relationships ───
+
+export function useRelationships() {
+    const [relationships, setRelationships] = useState<AgentRelationship[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    const fetchRelationships = useCallback(async () => {
+        try {
+            const data = await fetchJson<{
+                relationships: AgentRelationship[];
+            }>('/api/ops/relationships');
+            setRelationships(data.relationships);
+            setError(null);
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchRelationships();
+    }, [fetchRelationships]);
+
+    // Poll every 30 seconds
+    useInterval(() => {
+        fetchRelationships();
+    }, 30000);
+
+    return { relationships, loading, error };
 }
 
 // ─── useInterval — for animations and polling ───

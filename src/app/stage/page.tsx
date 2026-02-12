@@ -10,6 +10,8 @@ import { OfficeRoom } from './OfficeRoom';
 import { EventLogFeed } from './EventLogFeed';
 import { SystemLogs } from './SystemLogs';
 import { CostTracker } from './CostTracker';
+import { MemoryExplorer } from './MemoryExplorer';
+import { RelationshipGraph } from './RelationshipGraph';
 import { StageErrorBoundary, SectionErrorBoundary } from './StageErrorBoundary';
 import {
     MissionsListSkeleton,
@@ -105,6 +107,20 @@ export default function StagePage() {
                     {view === 'costs' && (
                         <SectionErrorBoundary label='Cost Tracker'>
                             <CostTracker />
+                        </SectionErrorBoundary>
+                    )}
+
+                    {/* ── Memories View ── */}
+                    {view === 'memories' && (
+                        <SectionErrorBoundary label='Memory Explorer'>
+                            <MemoryExplorer />
+                        </SectionErrorBoundary>
+                    )}
+
+                    {/* ── Relationships View ── */}
+                    {view === 'relationships' && (
+                        <SectionErrorBoundary label='Relationships'>
+                            <RelationshipGraph />
                         </SectionErrorBoundary>
                     )}
 

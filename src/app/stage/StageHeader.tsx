@@ -10,7 +10,7 @@ import { StatsBarSkeleton } from './StageSkeletons';
 import { AGENTS } from '@/lib/agents';
 import type { AgentId } from '@/lib/types';
 
-export type ViewMode = 'feed' | 'missions' | 'office' | 'logs' | 'costs';
+export type ViewMode = 'feed' | 'missions' | 'office' | 'logs' | 'costs' | 'memories' | 'relationships';
 
 function ConnectionIndicator({ status }: { status: ConnectionStatus }) {
     const config: Record<
@@ -91,6 +91,8 @@ export function StageHeader({
         { key: 'office', label: 'Office', icon: '🏢' },
         { key: 'logs', label: 'Cortex', icon: '🧠' },
         { key: 'costs', label: 'Costs', icon: '💰' },
+        { key: 'memories', label: 'Memories', icon: '🧬' },
+        { key: 'relationships', label: 'Graph', icon: '🌐' },
     ];
 
     return (
