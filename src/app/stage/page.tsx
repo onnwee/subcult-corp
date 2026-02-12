@@ -6,14 +6,13 @@ import { StageHeader, type ViewMode } from './StageHeader';
 import type { ConnectionStatus } from './hooks';
 import { MissionsList } from './MissionsList';
 import { MissionPlayback } from './MissionPlayback';
-import { OfficeRoom } from './OfficeRoom';
+import { Office3DScene } from './office3d/Office3DScene';
 import { EventLogFeed } from './EventLogFeed';
 import { SystemLogs } from './SystemLogs';
 import { CostTracker } from './CostTracker';
 import { StageErrorBoundary, SectionErrorBoundary } from './StageErrorBoundary';
 import {
     MissionsListSkeleton,
-    OfficeRoomSkeleton,
     EventLogFeedSkeleton,
     SystemLogsSkeleton,
 } from './StageSkeletons';
@@ -72,13 +71,11 @@ export default function StagePage() {
                         </SectionErrorBoundary>
                     )}
 
-                    {/* ── Office View ── */}
+                    {/* ── Office View (Three.js 2.5D) ── */}
                     {view === 'office' && (
                         <div className='space-y-4'>
                             <SectionErrorBoundary label='Office'>
-                                <Suspense fallback={<OfficeRoomSkeleton />}>
-                                    <OfficeRoom />
-                                </Suspense>
+                                <Office3DScene />
                             </SectionErrorBoundary>
                             <SectionErrorBoundary label='Event Log'>
                                 <Suspense fallback={<EventLogFeedSkeleton />}>
