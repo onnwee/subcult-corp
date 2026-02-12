@@ -381,10 +381,15 @@ export function useEventStream(filters?: {
         }
 
         // Initial data load via HTTP first to establish snapshot
-        pollFallback().then(() => {
-            // Then connect SSE stream to continue from snapshot
-            if (isMounted) connect();
-        });
+        pollFallback()
+            .then(() => {
+                // Then connect SSE stream to continue from snapshot
+                if (isMounted) connect();
+            })
+            .catch(() => {
+                // If initial fetch fails, still try to connect SSE
+                if (isMounted) connect();
+            });
 
         return () => {
             isMounted = false;

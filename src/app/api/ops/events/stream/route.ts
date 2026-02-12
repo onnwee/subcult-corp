@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
                 SELECT * FROM ops_agent_events
                 WHERE (
                     created_at > ${cursorCreatedAt}
-                    OR (created_at = ${cursorCreatedAt} AND id > ${cursorId ?? ''})
+                    ${cursorId ? sql`OR (created_at = ${cursorCreatedAt} AND id > ${cursorId})` : sql``}
                 )
                 ${agentId ? sql`AND agent_id = ${agentId}` : sql``}
                 ${kind ? sql`AND kind = ${kind}` : sql``}
