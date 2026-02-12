@@ -54,6 +54,20 @@ services:
         networks:
             - internal
 
+    # ── Mission Step Executor Worker ──
+    mission-worker:
+        build: .
+        container_name: subcult-mission
+        restart: unless-stopped
+        command: ['node', 'scripts/mission-worker/worker.mjs']
+        depends_on:
+            postgres:
+                condition: service_healthy
+        env_file:
+            - .env.local
+        networks:
+            - internal
+
     # ── Initiative Worker ──
     initiative-worker:
         build: .
