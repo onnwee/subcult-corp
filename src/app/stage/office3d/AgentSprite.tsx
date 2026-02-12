@@ -3,9 +3,9 @@
 
 import { useMemo, useRef, useEffect } from 'react';
 import * as THREE from 'three';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import { Billboard, Text } from '@react-three/drei';
-import { BEHAVIOR_EMOJIS, COLORS, type AgentBehavior } from './constants';
+import { BEHAVIOR_EMOJIS, COLORS } from './constants';
 import type { Agent3DState } from './useOfficeState';
 
 // Generate a pixel-art agent sprite texture on canvas
@@ -70,7 +70,7 @@ export function AgentSprite({
 }: {
     agent: Agent3DState;
     onClick?: () => void;
-    onPointerDown?: (e: THREE.Event) => void;
+    onPointerDown?: (e: ThreeEvent<PointerEvent>) => void;
     onPointerEnter?: () => void;
     onPointerLeave?: () => void;
 }) {

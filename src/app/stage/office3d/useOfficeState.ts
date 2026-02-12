@@ -67,8 +67,6 @@ function createInitialAgents(): Agent3DState[] {
     });
 }
 
-const BEHAVIORS: AgentBehavior[] = ['idle', 'working', 'chatting', 'coffee', 'celebrating', 'walking', 'thinking'];
-
 export function useOfficeState() {
     const { stats } = useSystemStats();
     const { sessions } = useConversations(5);
@@ -85,12 +83,14 @@ export function useOfficeState() {
             try {
                 const res = await fetch('/api/ops/events?limit=30');
                 if (!res.ok) {
+                    // eslint-disable-next-line no-console
                     console.error('Failed to fetch events:', res.statusText);
                     return;
                 }
                 const data = await res.json();
                 setRecentEvents(data.events ?? []);
             } catch (err) {
+                // eslint-disable-next-line no-console
                 console.error('Error fetching events:', err);
             }
         }
@@ -103,12 +103,14 @@ export function useOfficeState() {
             try {
                 const res = await fetch('/api/ops/missions?status=running&limit=20');
                 if (!res.ok) {
+                    // eslint-disable-next-line no-console
                     console.error('Failed to fetch missions:', res.statusText);
                     return;
                 }
                 const data = await res.json();
                 setActiveMissions(data.missions ?? []);
             } catch (err) {
+                // eslint-disable-next-line no-console
                 console.error('Error fetching missions:', err);
             }
         }
@@ -124,6 +126,7 @@ export function useOfficeState() {
                 if (!lastSession) return;
                 const res = await fetch(`/api/ops/turns?session_id=${lastSession.id}`);
                 if (!res.ok) {
+                    // eslint-disable-next-line no-console
                     console.error('Failed to fetch turns:', res.statusText);
                     return;
                 }
@@ -135,6 +138,7 @@ export function useOfficeState() {
                     })));
                 }
             } catch (err) {
+                // eslint-disable-next-line no-console
                 console.error('Error fetching turns:', err);
             }
         }

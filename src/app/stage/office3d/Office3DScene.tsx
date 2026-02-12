@@ -3,7 +3,6 @@
 
 import { Suspense, useCallback, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
-import * as THREE from 'three';
 import { OfficeFloor } from './OfficeFloor';
 import { OfficeWalls } from './OfficeWalls';
 import { OfficeLighting } from './OfficeLighting';
@@ -11,7 +10,7 @@ import { OfficeFurniture } from './OfficeFurniture';
 import { OfficeWhiteboard } from './OfficeWhiteboard';
 import { AgentSprite } from './AgentSprite';
 import { OverlayPanels } from './OverlayPanels';
-import { useOfficeState, type SelectedObject } from './useOfficeState';
+import { useOfficeState } from './useOfficeState';
 import { useTimeOfDay } from '../hooks';
 import { CAMERA, COLORS } from './constants';
 import type { AgentId } from '@/lib/types';
@@ -66,7 +65,7 @@ function OfficeSceneContent({
             isDragging.current = false;
             setDraggingAgent(agentId);
 
-            const handlePointerMove = (e: PointerEvent) => {
+            const handlePointerMove = (_e: PointerEvent) => {
                 isDragging.current = true;
                 // We handle dragging via raycasting in the frame loop if needed
                 // For simplicity, we use a basic approach
