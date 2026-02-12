@@ -1,12 +1,65 @@
 // Stage Header — title bar, stats, and view toggle
 'use client';
 
-import { useSystemStats, type SystemStats } from './hooks';
+import {
+    useSystemStats,
+    type SystemStats,
+    type ConnectionStatus,
+} from './hooks';
 import { StatsBarSkeleton } from './StageSkeletons';
 import { AGENTS } from '@/lib/agents';
 import type { AgentId } from '@/lib/types';
 
 export type ViewMode = 'feed' | 'missions' | 'office' | 'logs';
+
+function ConnectionIndicator({ status }: { status: ConnectionStatus }) {
+    const config: Record<
+        ConnectionStatus,
+        { color: string; pulse: boolean; label: string; tooltip: string }
+    > = {
+        connected: {
+            color: 'bg-accent-green',
+            pulse: false,
+            label: 'Live',
+            tooltip: 'SSE connection active — real-time updates',
+        },
+        reconnecting: {
+            color: 'bg-accent-yellow',
+            pulse: true,
+            label: 'Reconnecting...',
+            tooltip: 'SSE connection lost — attempting to reconnect',
+        },
+        polling: {
+            color: 'bg-zinc-500',
+            pulse: false,
+            label: 'Polling',
+            tooltip: 'SSE unavailable — using HTTP polling fallback',
+        },
+    };
+
+    const { color, pulse, label, tooltip } = config[status];
+
+    return (
+        <span
+            className='flex items-center gap-1.5 cursor-default'
+            title={tooltip}
+        >
+            <span className='relative flex h-2 w-2'>
+                {pulse && (
+                    <span
+                        className={`animate-ping absolute inline-flex h-full w-full rounded-full ${color} opacity-75`}
+                    />
+                )}
+                <span
+                    className={`relative inline-flex rounded-full h-2 w-2 ${color}`}
+                />
+            </span>
+            <span className='text-[10px] text-zinc-500 font-medium'>
+                {label}
+            </span>
+        </span>
+    );
+}
 
 function StatCard({ label, value }: { label: string; value: number | string }) {
     return (
@@ -24,9 +77,11 @@ function StatCard({ label, value }: { label: string; value: number | string }) {
 export function StageHeader({
     view,
     onViewChange,
+    connectionStatus,
 }: {
     view: ViewMode;
     onViewChange: (v: ViewMode) => void;
+    connectionStatus?: ConnectionStatus;
 }) {
     const { stats, loading } = useSystemStats();
 
@@ -42,9 +97,14 @@ export function StageHeader({
             {/* Title row */}
             <div className='flex items-center justify-between'>
                 <div>
-                    <h1 className='text-xl font-bold text-zinc-100 tracking-tight'>
-                        SUBCULT OPS
-                    </h1>
+                    <div className='flex items-center gap-2'>
+                        <h1 className='text-xl font-bold text-zinc-100 tracking-tight'>
+                            SUBCULT OPS
+                        </h1>
+                        {connectionStatus && (
+                            <ConnectionIndicator status={connectionStatus} />
+                        )}
+                    </div>
                     <p className='text-xs text-zinc-500 mt-0.5'>
                         Multi-agent command center
                     </p>

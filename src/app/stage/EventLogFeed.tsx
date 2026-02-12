@@ -3,8 +3,13 @@
 'use client';
 'use no memo';
 
-import { useState, useCallback, useMemo } from 'react';
-import { useEvents, useConversations, useInterval } from './hooks';
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import {
+    useEventStream,
+    useConversations,
+    useInterval,
+    type ConnectionStatus,
+} from './hooks';
 import { AGENTS } from '@/lib/agents';
 import { TranscriptViewer } from './TranscriptViewer';
 import type { AgentEvent, AgentId, RoundtableSession } from '@/lib/types';
@@ -27,6 +32,14 @@ const KIND_ICONS: Record<string, string> = {
     initiative_queued: '🧠',
     memory_stored: '🧬',
     heartbeat: '💓',
+    // OpenClaw event kinds
+    skill_execution: '🔧',
+    action_run: '▶️',
+    cron_run: '⏱️',
+    model_fallback: '⚠️',
+    alert_sent: '🔔',
+    agent_session: '🟢',
+    health_check: '🩺',
     default: '📡',
 };
 
@@ -46,6 +59,14 @@ const KIND_LABELS: Record<string, string> = {
     initiative_queued: 'Initiative Queued',
     memory_stored: 'Memory Stored',
     heartbeat: 'Heartbeat',
+    // OpenClaw event kinds
+    skill_execution: 'Skill Execution',
+    action_run: 'Action Run',
+    cron_run: 'Cron Run',
+    model_fallback: 'Model Fallback',
+    alert_sent: 'Alert Sent',
+    agent_session: 'Agent Session',
+    health_check: 'Health Check',
 };
 
 // ─── Helpers ───
@@ -83,6 +104,7 @@ function getKindSeverity(
     kind: string,
 ): 'info' | 'success' | 'warning' | 'error' {
     if (kind.includes('failed') || kind.includes('rejected')) return 'error';
+    if (kind === 'model_fallback' || kind === 'alert_sent') return 'warning';
     if (kind.includes('completed') || kind.includes('approved'))
         return 'success';
     if (kind.includes('fired') || kind.includes('started')) return 'warning';
@@ -210,7 +232,10 @@ function DetailedEventRow({
                     )}
                     {sessionAction && (
                         <button
-                            onClick={e => { e.stopPropagation(); sessionAction.onClick(); }}
+                            onClick={e => {
+                                e.stopPropagation();
+                                sessionAction.onClick();
+                            }}
                             className='mt-1.5 text-[10px] font-mono text-accent hover:text-accent/80 transition-colors'
                         >
                             {sessionAction.label}
@@ -260,9 +285,11 @@ function SessionCard({
     onSelect: () => void;
 }) {
     const statusColors = {
-        pending: 'text-accent-yellow bg-accent-yellow/10 border-accent-yellow/30',
+        pending:
+            'text-accent-yellow bg-accent-yellow/10 border-accent-yellow/30',
         running: 'text-accent-blue bg-accent-blue/10 border-accent-blue/30',
-        completed: 'text-accent-green bg-accent-green/10 border-accent-green/30',
+        completed:
+            'text-accent-green bg-accent-green/10 border-accent-green/30',
         failed: 'text-accent-red bg-accent-red/10 border-accent-red/30',
     };
 
@@ -277,9 +304,9 @@ function SessionCard({
         <div
             onClick={onSelect}
             className={`rounded-lg border p-3 cursor-pointer transition-colors ${
-                isSelected
-                    ? 'border-zinc-600 bg-zinc-800/60 ring-1 ring-zinc-600/50'
-                    : 'border-zinc-700/50 bg-zinc-800/30 hover:bg-zinc-800/50 hover:border-zinc-600/50'
+                isSelected ?
+                    'border-zinc-600 bg-zinc-800/60 ring-1 ring-zinc-600/50'
+                :   'border-zinc-700/50 bg-zinc-800/30 hover:bg-zinc-800/50 hover:border-zinc-600/50'
             }`}
         >
             <div className='flex items-start justify-between gap-2'>
@@ -337,7 +364,7 @@ function SessionCard({
 
 // ─── Filter Bar ───
 
-type FeedTab = 'all' | 'conversations' | 'missions' | 'system';
+type FeedTab = 'all' | 'conversations' | 'missions' | 'system' | 'openclaw';
 
 const TAB_FILTERS: Record<FeedTab, string[] | null> = {
     all: null,
@@ -366,6 +393,16 @@ const TAB_FILTERS: Record<FeedTab, string[] | null> = {
         'memory_stored',
         'memory_consolidated',
         'heartbeat',
+        'health_check',
+    ],
+    openclaw: [
+        'skill_execution',
+        'action_run',
+        'cron_run',
+        'model_fallback',
+        'alert_sent',
+        'agent_session',
+        'health_check',
     ],
 };
 
@@ -381,6 +418,7 @@ function FeedTabs({
         { key: 'conversations', label: 'Conversations', icon: '💬' },
         { key: 'missions', label: 'Missions', icon: '🎯' },
         { key: 'system', label: 'System', icon: '⚙️' },
+        { key: 'openclaw', label: 'OpenClaw', icon: '🐾' },
     ];
 
     return (
@@ -423,14 +461,26 @@ const CONVERSATION_EVENT_KINDS = new Set([
     'conversation_failed',
 ]);
 
-export function EventLogFeed() {
+export function EventLogFeed({
+    onConnectionStatus,
+}: { onConnectionStatus?: (status: ConnectionStatus) => void } = {}) {
     const [activeTab, setActiveTab] = useState<FeedTab>('all');
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
     const [showSessions, setShowSessions] = useState(true);
-    const [selectedSession, setSelectedSession] = useState<RoundtableSession | null>(null);
-    const [transcriptEventId, setTranscriptEventId] = useState<string | null>(null);
+    const [selectedSession, setSelectedSession] =
+        useState<RoundtableSession | null>(null);
+    const [transcriptEventId, setTranscriptEventId] = useState<string | null>(
+        null,
+    );
 
-    const { events, loading, error } = useEvents({ limit: 500 });
+    const { events, loading, error, connectionStatus } = useEventStream({
+        limit: 500,
+    });
+
+    // Propagate connection status to parent
+    useEffect(() => {
+        onConnectionStatus?.(connectionStatus);
+    }, [connectionStatus, onConnectionStatus]);
     const { sessions, loading: sessionsLoading } = useConversations(10);
 
     // Build session lookup by ID for inline transcripts
@@ -458,7 +508,6 @@ export function EventLogFeed() {
             return next;
         });
     }, []);
-
 
     if (loading) {
         return (
@@ -537,7 +586,9 @@ export function EventLogFeed() {
                                 <div key={s.id}>
                                     <SessionCard
                                         session={s}
-                                        isSelected={selectedSession?.id === s.id}
+                                        isSelected={
+                                            selectedSession?.id === s.id
+                                        }
                                         onSelect={() =>
                                             setSelectedSession(prev =>
                                                 prev?.id === s.id ? null : s,
@@ -548,7 +599,9 @@ export function EventLogFeed() {
                                         <div className='mt-2'>
                                             <TranscriptViewer
                                                 session={selectedSession}
-                                                onClose={() => setSelectedSession(null)}
+                                                onClose={() =>
+                                                    setSelectedSession(null)
+                                                }
                                             />
                                         </div>
                                     )}
@@ -568,30 +621,56 @@ export function EventLogFeed() {
             :   <div className='h-125 overflow-y-auto scrollbar-thin scrollbar-track-zinc-900 scrollbar-thumb-zinc-700'>
                     <div className='space-y-1.5 px-3 py-2'>
                         {filteredEvents.map(event => {
-                            const sessionId = CONVERSATION_EVENT_KINDS.has(event.kind)
-                                ? (event.metadata?.sessionId as string | undefined)
-                                : undefined;
-                            const matchedSession = sessionId ? sessionMap.get(sessionId) : undefined;
-                            const showingTranscript = transcriptEventId === event.id && matchedSession;
+                            const sessionId =
+                                CONVERSATION_EVENT_KINDS.has(event.kind) ?
+                                    (event.metadata?.sessionId as
+                                        | string
+                                        | undefined)
+                                :   undefined;
+                            const matchedSession =
+                                sessionId ?
+                                    sessionMap.get(sessionId)
+                                :   undefined;
+                            const showingTranscript =
+                                transcriptEventId === event.id &&
+                                matchedSession;
 
                             return (
                                 <div key={event.id}>
                                     <DetailedEventRow
                                         event={event}
                                         isExpanded={expandedIds.has(event.id)}
-                                        onToggle={() => toggleExpanded(event.id)}
-                                        sessionAction={matchedSession ? {
-                                            label: showingTranscript ? 'Hide Transcript' : 'View Transcript',
-                                            onClick: () => setTranscriptEventId(prev =>
-                                                prev === event.id ? null : event.id,
-                                            ),
-                                        } : undefined}
+                                        onToggle={() =>
+                                            toggleExpanded(event.id)
+                                        }
+                                        sessionAction={
+                                            matchedSession ?
+                                                {
+                                                    label:
+                                                        showingTranscript ?
+                                                            'Hide Transcript'
+                                                        :   'View Transcript',
+                                                    onClick: () =>
+                                                        setTranscriptEventId(
+                                                            prev =>
+                                                                (
+                                                                    prev ===
+                                                                    event.id
+                                                                ) ?
+                                                                    null
+                                                                :   event.id,
+                                                        ),
+                                                }
+                                            :   undefined
+                                        }
                                     />
                                     {showingTranscript && (
                                         <div className='mt-1.5 ml-4'>
                                             <TranscriptViewer
                                                 session={matchedSession}
-                                                onClose={() => setTranscriptEventId(null)}
+                                                onClose={() =>
+                                                    setTranscriptEventId(null)
+                                                }
                                             />
                                         </div>
                                     )}

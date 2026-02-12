@@ -1,8 +1,9 @@
 // Stage — main dashboard page composing all components
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, Suspense, useCallback } from 'react';
 import { StageHeader, type ViewMode } from './StageHeader';
+import type { ConnectionStatus } from './hooks';
 import { MissionsList } from './MissionsList';
 import { MissionPlayback } from './MissionPlayback';
 import { OfficeRoom } from './OfficeRoom';
@@ -21,13 +22,22 @@ export default function StagePage() {
     const [playbackMissionId, setPlaybackMissionId] = useState<string | null>(
         null,
     );
+    const [connectionStatus, setConnectionStatus] =
+        useState<ConnectionStatus>('connected');
+    const handleConnectionStatus = useCallback((status: ConnectionStatus) => {
+        setConnectionStatus(status);
+    }, []);
 
     return (
         <StageErrorBoundary>
             <div className='min-h-screen bg-[#11111b] text-zinc-100'>
                 <div className='mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 space-y-6'>
                     {/* Header with stats + view toggle */}
-                    <StageHeader view={view} onViewChange={setView} />
+                    <StageHeader
+                        view={view}
+                        onViewChange={setView}
+                        connectionStatus={connectionStatus}
+                    />
 
                     {/* Mission playback overlay */}
                     {playbackMissionId && (
@@ -43,7 +53,9 @@ export default function StagePage() {
                     {view === 'feed' && (
                         <SectionErrorBoundary label='Event Log'>
                             <Suspense fallback={<EventLogFeedSkeleton />}>
-                                <EventLogFeed />
+                                <EventLogFeed
+                                    onConnectionStatus={handleConnectionStatus}
+                                />
                             </Suspense>
                         </SectionErrorBoundary>
                     )}
@@ -69,7 +81,11 @@ export default function StagePage() {
                             </SectionErrorBoundary>
                             <SectionErrorBoundary label='Event Log'>
                                 <Suspense fallback={<EventLogFeedSkeleton />}>
-                                    <EventLogFeed />
+                                    <EventLogFeed
+                                        onConnectionStatus={
+                                            handleConnectionStatus
+                                        }
+                                    />
                                 </Suspense>
                             </SectionErrorBoundary>
                         </div>

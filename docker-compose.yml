@@ -22,9 +22,10 @@ services:
         networks:
             - internal
 
-    # ── OpenClaw Gateway Bridge — disabled ──
-    # openclaw-host-relay and openclaw-bridge removed.
-    # Re-enable when OpenClaw gateway is needed for skills execution.
+    # ── OpenClaw Gateway Bridge ──
+    # Reads JSONL/logs from bind-mounted OpenClaw directories via inotify
+    # and inserts ops_agent_events rows into Postgres over the internal network.
+    # See the openclaw-bridge service definition below.
 
     # ── Next.js App ──
     app:
@@ -54,6 +55,20 @@ services:
         networks:
             - internal
 
+    # ── Mission Step Executor Worker ──
+    mission-worker:
+        build: .
+        container_name: subcult-mission
+        restart: unless-stopped
+        command: ['node', 'scripts/mission-worker/worker.mjs']
+        depends_on:
+            postgres:
+                condition: service_healthy
+        env_file:
+            - .env.local
+        networks:
+            - internal
+
     # ── Initiative Worker ──
     initiative-worker:
         build: .
@@ -65,6 +80,34 @@ services:
                 condition: service_healthy
         env_file:
             - .env.local
+        networks:
+            - internal
+
+    # ── OpenClaw Event Bridge ──
+    openclaw-bridge:
+        build:
+            context: /home/onnwee/.openclaw/bridge
+        container_name: subcult-oc-bridge
+        restart: unless-stopped
+        depends_on:
+            postgres:
+                condition: service_healthy
+        env_file:
+            - .env.local
+        environment:
+            PGHOST: postgres
+            PGPORT: '5432'
+            PGDATABASE: subcult_ops
+            PGUSER: subcult
+            OPENCLAW_HOME: /data/openclaw
+            BRIDGE_DIR: /data/bridge
+        volumes:
+            - /home/onnwee/.openclaw/cron/runs:/data/openclaw/cron/runs:ro
+            - /home/onnwee/.openclaw/cron/jobs.json:/data/openclaw/cron/jobs.json:ro
+            - /home/onnwee/.openclaw/logs:/data/openclaw/logs:ro
+            - /home/onnwee/.openclaw/agents:/data/openclaw/agents:ro
+            - /home/onnwee/.openclaw/workspace/skills/topic-monitor/.data:/data/openclaw/workspace/skills/topic-monitor/.data:ro
+            - /home/onnwee/.openclaw/bridge:/data/bridge
         networks:
             - internal
 
