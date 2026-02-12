@@ -18,9 +18,15 @@ export interface SSEStreamController {
  */
 export function createSSEStream(): SSEStreamController {
     const encoder = new TextEncoder();
+    let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
 
-    // Create a writable stream first
-    let controller: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+        start(ctrl) {
+            controller = ctrl;
+        },
+    });
+
+    // Create writable stream after ReadableStream to ensure controller is initialized
     const writable = new WritableStream<string>({
         write(chunk) {
             if (controller) {
@@ -40,12 +46,6 @@ export function createSSEStream(): SSEStreamController {
     });
 
     const writer = writable.getWriter();
-
-    const stream = new ReadableStream<Uint8Array>({
-        start(ctrl) {
-            controller = ctrl;
-        },
-    });
 
     return { stream, writer };
 }
@@ -68,6 +68,7 @@ export async function sendEvent(
 
 /**
  * Starts sending periodic keepalive comments to prevent connection timeout
+ * Uses recursive setTimeout to avoid overlapping writes
  * @param writer - The WritableStreamDefaultWriter from createSSEStream
  * @param intervalMs - Interval in milliseconds between keepalive messages
  * @returns A function to stop the keepalive interval
@@ -77,24 +78,32 @@ export function keepAlive(
     intervalMs: number,
 ): () => void {
     let isActive = true;
-    const interval = setInterval(async () => {
+
+    const sendKeepAlive = async () => {
         if (!isActive) {
-            clearInterval(interval);
             return;
         }
+
         try {
             await writer.write(':keepalive\n\n');
         } catch (error) {
-            // Writer is likely closed, clear the interval
+            // Writer is likely closed, stop keepalive
             console.error('SSE keepalive error:', error);
             isActive = false;
-            clearInterval(interval);
+            return;
         }
-    }, intervalMs);
+
+        // Schedule next keepalive after write completes
+        if (isActive) {
+            setTimeout(sendKeepAlive, intervalMs);
+        }
+    };
+
+    // Start the keepalive loop
+    setTimeout(sendKeepAlive, intervalMs);
 
     return () => {
         isActive = false;
-        clearInterval(interval);
     };
 }
 
