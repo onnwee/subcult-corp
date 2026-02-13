@@ -42,8 +42,9 @@ const ITERATIONS = 150;
 // ─── Edge Colors by Affinity ───
 
 function affinityColor(affinity: number): string {
-    if (affinity > 0.6) return '#a6e3a1'; // green
-    if (affinity >= 0.3) return '#f9e2af'; // yellow
+    if (affinity >= 0.7) return '#a6e3a1'; // green
+    if (affinity >= 0.5) return '#f9e2af'; // yellow
+    if (affinity >= 0.3) return '#fab387'; // orange/peach
     return '#f38ba8'; // red
 }
 
@@ -163,11 +164,13 @@ function EdgeDetailPanel({
     const recentDrifts = driftLog.slice(-5).reverse();
 
     const affinityLabel =
-        affinity > 0.6
+        affinity >= 0.7
             ? 'Strong'
-            : affinity >= 0.3
+            : affinity >= 0.5
                 ? 'Neutral'
-                : 'Hostile';
+                : affinity >= 0.3
+                    ? 'Tense'
+                    : 'Hostile';
 
     return (
         <div className='rounded-lg border border-zinc-700/50 bg-zinc-800/80 p-4 space-y-3'>
@@ -805,7 +808,7 @@ export function RelationshipGraph() {
                                 style={{ backgroundColor: '#a6e3a1' }}
                             />
                             <span className='text-zinc-500'>
-                                Strong (&gt;60%)
+                                Strong (≥70%)
                             </span>
                         </span>
                         <span className='flex items-center gap-1 text-[10px]'>
@@ -814,7 +817,16 @@ export function RelationshipGraph() {
                                 style={{ backgroundColor: '#f9e2af' }}
                             />
                             <span className='text-zinc-500'>
-                                Neutral (30-60%)
+                                Neutral (50-69%)
+                            </span>
+                        </span>
+                        <span className='flex items-center gap-1 text-[10px]'>
+                            <span
+                                className='inline-block h-2 w-4 rounded'
+                                style={{ backgroundColor: '#fab387' }}
+                            />
+                            <span className='text-zinc-500'>
+                                Tense (30-49%)
                             </span>
                         </span>
                         <span className='flex items-center gap-1 text-[10px]'>

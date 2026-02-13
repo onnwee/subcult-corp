@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
         const tagsParam = searchParams.get('tags');
         const search = searchParams.get('search');
         const activeOnly = searchParams.get('active_only') !== 'false'; // default true
-        
+
         const limitParam = searchParams.get('limit');
         let limit = 100;
         if (limitParam !== null) {

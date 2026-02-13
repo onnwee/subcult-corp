@@ -278,7 +278,7 @@ export function CostTracker() {
                         <BarChart items={costs.breakdown} groupMode={groupMode} metric={metric} />
                     </div>
 
-                    {/* Recent calls table — top 10 by cost */}
+                    {/* Breakdown table — grouped usage by agent/model/context */}
                     {costs.breakdown.length > 0 && (
                         <div className="rounded-lg bg-zinc-800/30 border border-zinc-700/50 overflow-hidden">
                             <table className="w-full text-xs">
