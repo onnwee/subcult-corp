@@ -43,14 +43,19 @@ function normalizeModel(id) {
  * Dialogue models — fast, cheap, personality-focused.
  * Used for conversation turns (high volume, 120-char responses).
  * Ordered by speed/cost for efficient routing.
+ * Free models at the end as safety net so we never exhaust to empty.
  */
 const DIALOGUE_MODELS = [
-    'anthropic/claude-haiku-4.5', // fast, great personality
     'google/gemini-2.5-flash', // very fast, very cheap
+    'anthropic/claude-haiku-4.5', // fast, great personality
     'openai/gpt-4.1-mini', // fast, reliable
     'deepseek/deepseek-v3.2', // cheap, good quality
-    'qwen/qwen3-235b-a22b', // good creative output
-    'moonshotai/kimi-k2.5', // broad coverage
+    'x-ai/grok-4.1-fast', // fast, good quality
+    'google/gemini-3-flash-preview', // newest flash
+    // Free models as fallback safety net
+    'stepfun/step-3.5-flash:free',
+    'qwen/qwen3-coder:free',
+    'google/gemma-3-27b-it:free',
 ];
 
 /**
@@ -63,6 +68,7 @@ const DISTILL_MODELS = [
     'anthropic/claude-haiku-4.5', // reliable JSON
     'openai/gpt-4.1-mini', // reliable JSON
     'deepseek/deepseek-v3.2', // good at following format
+    'google/gemma-3-27b-it:free', // free fallback for JSON
 ];
 
 /** Effective dialogue model list (env override prepended if set) */
@@ -86,10 +92,11 @@ const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? '';
 const OLLAMA_TIMEOUT_MS = 45_000; // generous — model may need to load into VRAM
 
 /**
- * Ollama models for dialogue — qwen3:32b is the primary (great personality).
- * Using one model avoids GPU swap overhead between turns.
+ * Ollama models for dialogue — llama3.2 is small (2GB) so it loads fast
+ * and doesn't cause VRAM swap contention with larger models.
+ * Ollama is a bonus path; OpenRouter is the primary.
  */
-const OLLAMA_MODELS = ['qwen3:32b'];
+const OLLAMA_MODELS = ['llama3.2:latest'];
 
 /** Strip <think>...</think> blocks from reasoning model output */
 function stripThinking(text) {
@@ -1091,7 +1098,7 @@ async function llmGenerate(
     }
 
     log.error('All models exhausted');
-    return '';
+    throw new Error('All LLM models exhausted — no response generated');
 }
 
 function sanitize(text) {
@@ -1516,6 +1523,16 @@ async function orchestrateSession(session) {
         }
 
         const dialogue = sanitize(rawDialogue);
+
+        // Skip empty turns — don't pollute the transcript with blank entries
+        if (!dialogue) {
+            log.warn('Empty dialogue after sanitization, skipping turn', {
+                turn,
+                speaker: speakerName,
+            });
+            continue;
+        }
+
         history.push({ speaker, dialogue, turn });
 
         // Store turn

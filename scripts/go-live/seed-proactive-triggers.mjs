@@ -129,6 +129,39 @@ const proactiveTriggers = [
         cooldown_minutes: 720,
         enabled: false,
     },
+
+    // ─── Mux: Operations ───
+    {
+        name: 'Proposal backlog monitor (Mux)',
+        trigger_event: 'proactive_proposal_triage',
+        conditions: {
+            pending_threshold: 10,
+        },
+        action_config: { target_agent: 'mux', action: 'triage_proposals' },
+        cooldown_minutes: 360,
+        enabled: true,
+    },
+    {
+        name: 'Operational status report (Mux)',
+        trigger_event: 'proactive_ops_report',
+        conditions: {},
+        action_config: { target_agent: 'mux', action: 'ops_report' },
+        cooldown_minutes: 720,
+        enabled: true,
+    },
+
+    // ─── Primus: Strategic Oversight ───
+    {
+        name: 'Strategic drift detector (Primus)',
+        trigger_event: 'strategic_drift_check',
+        conditions: {
+            lookback_hours: 48,
+            failure_rate_threshold: 0.3,
+        },
+        action_config: { target_agent: 'primus', action: 'strategic_review' },
+        cooldown_minutes: 2880,
+        enabled: true,
+    },
 ];
 
 async function seed() {

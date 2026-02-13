@@ -5,6 +5,9 @@ import { getPolicy } from './policy';
 import { checkCapGates } from './cap-gates';
 import { emitEvent } from './events';
 import { DAILY_PROPOSAL_LIMIT } from '../agents';
+import { logger } from '@/lib/logger';
+
+const log = logger.child({ module: 'proposal-service' });
 
 export async function createProposalAndMaybeAutoApprove(
     input: ProposalInput,
@@ -113,6 +116,7 @@ export async function createMissionFromProposal(
     const missionId = mission.id;
 
     const steps = proposal.proposed_steps;
+    let stepCount = 0;
 
     for (const step of steps) {
         await sql`
@@ -123,6 +127,19 @@ export async function createMissionFromProposal(
                 'queued',
                 ${jsonb(step.payload ?? {})}
             )
+        `;
+        stepCount++;
+    }
+
+    if (stepCount === 0) {
+        log.warn('Mission created with no steps — marking as failed', {
+            missionId,
+            proposalId,
+        });
+        await sql`
+            UPDATE ops_missions
+            SET status = 'failed', failure_reason = 'No steps created (empty proposal)'
+            WHERE id = ${missionId}
         `;
     }
 

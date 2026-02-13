@@ -93,6 +93,23 @@ export async function GET(req: NextRequest) {
             log.error('Initiative queueing failed', { error: err });
         }
 
+        // ── Phase 7: Expire stale proposals ──
+        try {
+            const expired = await sql`
+                UPDATE ops_mission_proposals
+                SET status = 'rejected', updated_at = NOW()
+                WHERE status = 'pending' AND created_at < NOW() - INTERVAL '7 days'
+                RETURNING id
+            `;
+            results.expired_proposals = expired.length;
+            if (expired.length > 0) {
+                log.info('Expired stale proposals', { count: expired.length });
+            }
+        } catch (err) {
+            results.expired_proposals = { error: (err as Error).message };
+            log.error('Stale proposal expiry failed', { error: err });
+        }
+
         const durationMs = Date.now() - startTime;
 
         // ── Write audit log + heartbeat event ──

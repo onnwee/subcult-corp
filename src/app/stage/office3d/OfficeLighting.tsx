@@ -3,9 +3,19 @@
 
 import { COLORS } from './constants';
 
-export function OfficeLighting({ period }: { period: 'day' | 'dusk' | 'night' }) {
-    const ambientIntensity = period === 'night' ? 0.15 : period === 'dusk' ? 0.25 : 0.35;
-    const spotIntensity = period === 'night' ? 0.6 : period === 'dusk' ? 0.8 : 1.0;
+export function OfficeLighting({
+    period,
+}: {
+    period: 'day' | 'dusk' | 'night';
+}) {
+    const ambientIntensity =
+        period === 'night' ? 0.15
+        : period === 'dusk' ? 0.25
+        : 0.35;
+    const spotIntensity =
+        period === 'night' ? 0.6
+        : period === 'dusk' ? 0.8
+        : 1.0;
 
     return (
         <group>
@@ -13,9 +23,7 @@ export function OfficeLighting({ period }: { period: 'day' | 'dusk' | 'night' })
             <ambientLight intensity={ambientIntensity} color='#b4befe' />
 
             {/* Hemisphere for soft environment lighting */}
-            <hemisphereLight
-                args={['#1e3a5f', '#1e1e2e', 0.3]}
-            />
+            <hemisphereLight args={['#1e3a5f', '#1e1e2e', 0.3]} />
 
             {/* Ceiling lights — 4 evenly spaced */}
             {[-6, -2, 2, 6].map((x, i) => (

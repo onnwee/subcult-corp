@@ -98,6 +98,12 @@ async function checkTrigger(rule: TriggerRule): Promise<TriggerCheckResult> {
             return checkDailyRoundtable(conditions, targetAgent);
         case 'memory_consolidation_due':
             return checkMemoryConsolidation(conditions, targetAgent);
+        case 'proactive_proposal_triage':
+            return checkProposalTriage(conditions, targetAgent);
+        case 'proactive_ops_report':
+            return checkOpsReport(conditions, targetAgent);
+        case 'strategic_drift_check':
+            return checkStrategicDrift(conditions, targetAgent);
         default:
             if (rule.trigger_event.startsWith('proactive_')) {
                 return checkProactiveGeneric(rule, targetAgent);
@@ -353,6 +359,129 @@ async function checkDailyRoundtable(
                 title: `Convene daily roundtable`,
                 description: `No roundtable has occurred today. Dispatch a session with: ${participants.join(', ')}`,
                 proposed_steps: [{ kind: 'log_event' }],
+                source: 'trigger',
+            },
+        };
+    }
+    return { fired: false };
+}
+
+async function checkProposalTriage(
+    conditions: Record<string, unknown>,
+    targetAgent: string,
+): Promise<TriggerCheckResult> {
+    const threshold = (conditions.pending_threshold as number) ?? 10;
+
+    const [{ count }] = await sql<[{ count: number }]>`
+        SELECT COUNT(*)::int as count FROM ops_mission_proposals
+        WHERE status = 'pending'
+    `;
+
+    if (count >= threshold) {
+        return {
+            fired: true,
+            reason: `${count} pending proposals (threshold: ${threshold})`,
+            proposal: {
+                agent_id: targetAgent,
+                title: `Triage proposal backlog (${count} pending)`,
+                description: `${count} proposals awaiting review. Categorize by urgency and recommend batch actions.`,
+                proposed_steps: [
+                    { kind: 'audit_system', payload: { scope: 'proposal_backlog' } },
+                    { kind: 'document_lesson', payload: { topic: 'proposal_triage_results' } },
+                ],
+                source: 'trigger',
+            },
+        };
+    }
+    return { fired: false };
+}
+
+async function checkOpsReport(
+    _conditions: Record<string, unknown>,
+    targetAgent: string,
+): Promise<TriggerCheckResult> {
+    // Always fires when off cooldown — it's a periodic report
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+
+    const [stats] = await sql<[{
+        total_missions: number;
+        succeeded: number;
+        failed: number;
+        active_agents: number;
+    }]>`
+        SELECT
+            COUNT(*)::int as total_missions,
+            COUNT(*) FILTER (WHERE status = 'succeeded')::int as succeeded,
+            COUNT(*) FILTER (WHERE status = 'failed')::int as failed,
+            COUNT(DISTINCT created_by)::int as active_agents
+        FROM ops_missions
+        WHERE updated_at >= ${twentyFourHoursAgo}
+    `;
+
+    return {
+        fired: true,
+        reason: `Ops report: ${stats.total_missions} missions (${stats.succeeded} ok, ${stats.failed} failed), ${stats.active_agents} active agents`,
+        proposal: {
+            agent_id: targetAgent,
+            title: `Operational status report`,
+            description: `24h summary: ${stats.total_missions} missions (${stats.succeeded} succeeded, ${stats.failed} failed), ${stats.active_agents} active agents. Analyze throughput and agent balance.`,
+            proposed_steps: [
+                { kind: 'audit_system', payload: { scope: 'ops_health' } },
+                { kind: 'document_lesson', payload: { topic: 'ops_status_report' } },
+            ],
+            source: 'trigger',
+        },
+    };
+}
+
+async function checkStrategicDrift(
+    conditions: Record<string, unknown>,
+    targetAgent: string,
+): Promise<TriggerCheckResult> {
+    const lookbackHours = (conditions.lookback_hours as number) ?? 48;
+    const failureThreshold = (conditions.failure_rate_threshold as number) ?? 0.3;
+    const cutoff = new Date(Date.now() - lookbackHours * 60 * 60_000).toISOString();
+
+    // Check mission failure rate
+    const [missionStats] = await sql<[{ total: number; failed: number }]>`
+        SELECT
+            COUNT(*)::int as total,
+            COUNT(*) FILTER (WHERE status = 'failed')::int as failed
+        FROM ops_missions
+        WHERE updated_at >= ${cutoff}
+        AND status IN ('succeeded', 'failed')
+    `;
+
+    const failureRate = missionStats.total > 0
+        ? missionStats.failed / missionStats.total
+        : 0;
+
+    // Check if any strategy roundtable has occurred recently
+    const [{ count: strategyCount }] = await sql<[{ count: number }]>`
+        SELECT COUNT(*)::int as count FROM ops_roundtable_sessions
+        WHERE created_at >= ${cutoff}
+        AND format = 'strategy'
+    `;
+
+    const highFailureRate = missionStats.total >= 3 && failureRate > failureThreshold;
+    const noStrategySession = strategyCount === 0;
+
+    if (highFailureRate || noStrategySession) {
+        const reasons: string[] = [];
+        if (highFailureRate) reasons.push(`failure rate ${(failureRate * 100).toFixed(0)}% (${missionStats.failed}/${missionStats.total})`);
+        if (noStrategySession) reasons.push(`no strategy session in ${lookbackHours}h`);
+
+        return {
+            fired: true,
+            reason: `Strategic drift detected: ${reasons.join(', ')}`,
+            proposal: {
+                agent_id: targetAgent,
+                title: `Strategic drift assessment`,
+                description: `Drift indicators: ${reasons.join('; ')}. Review alignment of current operations with core objectives.`,
+                proposed_steps: [
+                    { kind: 'audit_system', payload: { scope: 'strategic_alignment' } },
+                    { kind: 'identify_assumption', payload: { scope: 'operational_drift' } },
+                ],
                 source: 'trigger',
             },
         };
