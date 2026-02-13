@@ -75,7 +75,7 @@ export default function StagePage() {
                         </SectionErrorBoundary>
                     )}
 
-                    {/* ── Office View ── */}
+                    {/* ── Office View (Three.js 2.5D) ── */}
                     {view === 'office' && (
                         <div className='space-y-4'>
                             {/* SVG / 3D toggle */}

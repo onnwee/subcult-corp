@@ -406,6 +406,11 @@ const TAB_FILTERS: Record<FeedTab, string[] | null> = {
         'agent_session_completed',
         'agent_session_failed',
         'cron_run',
+        'model_fallback',
+        'alert_sent',
+        'agent_session',
+        'health_check',
+        'health_score',
         'action_run',
     ],
 };
