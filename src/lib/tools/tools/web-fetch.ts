@@ -24,6 +24,11 @@ export const webFetchTool: NativeTool = {
         const url = params.url as string;
         const maxLength = (params.max_length as number) || 10_000;
 
+        // Validate maxLength is a safe number
+        if (typeof maxLength !== 'number' || isNaN(maxLength) || maxLength < 1 || maxLength > 1_000_000) {
+            return { error: 'max_length must be a number between 1 and 1,000,000' };
+        }
+
         // Sanitize URL — basic validation
         if (!url.startsWith('http://') && !url.startsWith('https://')) {
             return { error: 'URL must start with http:// or https://' };
@@ -31,6 +36,8 @@ export const webFetchTool: NativeTool = {
 
         // Use curl + html2text in toolbox for conversion
         const escapedUrl = url.replace(/'/g, "'\\''");
+        // Convert maxLength to string safely to prevent injection
+        const safeMaxLength = Math.floor(maxLength).toString();
         const command = `curl -sL --max-time 15 --max-filesize 5242880 '${escapedUrl}' | python3 -c "
 import sys
 try:
@@ -40,14 +47,14 @@ try:
     h.ignore_images = True
     h.body_width = 0
     content = sys.stdin.read()
-    print(h.handle(content)[:${maxLength}])
+    print(h.handle(content)[:${safeMaxLength}])
 except Exception as e:
     # Fallback: strip tags manually
     import re
     content = sys.stdin.read()
     text = re.sub(r'<[^>]+>', ' ', content)
     text = re.sub(r'\\s+', ' ', text).strip()
-    print(text[:${maxLength}])
+    print(text[:${safeMaxLength}])
 "`;
 
         const result = await execInToolbox(command, 20_000);

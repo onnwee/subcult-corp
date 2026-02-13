@@ -4,6 +4,7 @@ import type { NativeTool } from '../types';
 import type { AgentId } from '../../types';
 import { execInToolbox } from '../executor';
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 
 /**
  * Per-agent write ACLs.
@@ -23,9 +24,9 @@ export const WRITE_ACLS: Record<AgentId, string[]> = {
 const DROID_PREFIX = 'droids/';
 
 export function isPathAllowed(agentId: string, relativePath: string): boolean {
-    // Droid sessions (agentId like "droid-<uuid>") can only write to droids/
+    // Droid sessions (agentId like "droid-<uuid>") can only write to their own droid directory
     if (agentId.startsWith('droid-')) {
-        return relativePath.startsWith(DROID_PREFIX);
+        return relativePath.startsWith(`${DROID_PREFIX}${agentId}/`);
     }
 
     const acls = WRITE_ACLS[agentId as AgentId];
@@ -78,12 +79,29 @@ export function createFileWriteExecute(agentId: string) {
         const content = params.content as string;
         const append = params.append as boolean ?? false;
 
-        // Prevent path traversal
-        const path = rawPath.replace(/\.\.\//g, '');
-        const relativePath = path.startsWith('/workspace/')
-            ? path.replace('/workspace/', '')
-            : path;
-        const fullPath = `/workspace/${relativePath}`;
+        // Prevent path traversal with robust protection
+        // 1. Reject paths containing .. anywhere (handles ../, ..\\, URL-encoded, etc.)
+        if (rawPath.includes('..')) {
+            return {
+                error: 'Invalid path: path traversal sequences (..) are not allowed',
+            };
+        }
+
+        // 2. Normalize and resolve the path
+        const normalizedPath = path.normalize(rawPath);
+        const relativePath = normalizedPath.startsWith('/workspace/')
+            ? normalizedPath.replace('/workspace/', '')
+            : normalizedPath.startsWith('/')
+            ? normalizedPath.slice(1)
+            : normalizedPath;
+
+        // 3. Resolve to absolute path and verify it's within /workspace/
+        const fullPath = path.resolve('/workspace', relativePath);
+        if (!fullPath.startsWith('/workspace/')) {
+            return {
+                error: 'Invalid path: must be within /workspace/',
+            };
+        }
 
         // Enforce write ACLs
         if (!isPathAllowed(agentId, relativePath)) {

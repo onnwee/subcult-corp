@@ -49,7 +49,7 @@ export const spawnDroidTool: NativeTool = {
             MAX_DROID_TIMEOUT,
         );
 
-        const droidId = `droid-${randomUUID().slice(0, 8)}`;
+        const droidId = `droid-${randomUUID()}`;
         const droidDir = `/workspace/droids/${droidId}`;
         const outputPath = `droids/${droidId}/${safeOutputFilename}`;
 

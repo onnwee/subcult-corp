@@ -1,7 +1,7 @@
 // Cron Scheduler — evaluates cron schedules and enqueues agent sessions
 // Called by the heartbeat (Phase 8). Uses cron-parser to compute next fire times.
 
-import { sql, jsonb } from '@/lib/db';
+import { sql } from '@/lib/db';
 import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'cron-scheduler' });

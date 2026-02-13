@@ -16,3 +16,12 @@ CREATE TABLE IF NOT EXISTS ops_cron_schedules (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS idx_ops_cron_schedules_enabled
+    ON ops_cron_schedules (enabled);
+
+CREATE INDEX IF NOT EXISTS idx_ops_cron_schedules_next_fire_at
+    ON ops_cron_schedules (next_fire_at);
+
+CREATE INDEX IF NOT EXISTS idx_ops_cron_schedules_enabled_next_fire_at
+    ON ops_cron_schedules (enabled, next_fire_at);
