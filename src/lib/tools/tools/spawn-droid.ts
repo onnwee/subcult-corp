@@ -34,11 +34,12 @@ export const spawnDroidTool: NativeTool = {
         const task = params.task as string;
         const rawOutputFilename = (params.output_path as string) ?? 'output.md';
         
-        // Sanitize output_path: remove path traversal, shell metacharacters, and ensure it's a safe filename
+        // Sanitize output_path: remove all path traversal attempts and unsafe characters
         const outputFilename = rawOutputFilename
-            .replace(/\.\.\//g, '')           // Remove path traversal
-            .replace(/[^a-zA-Z0-9._-]/g, '_') // Replace unsafe chars with underscore
-            .slice(0, 128);                   // Limit length
+            .replace(/\.\./g, '')                 // Remove all .. sequences (including ../ and ..\)
+            .replace(/[^a-zA-Z0-9._-]/g, '_')     // Replace unsafe chars with underscore
+            .replace(/^[._-]+/, '')               // Remove leading dots/dashes
+            .slice(0, 128);                       // Limit length
         
         // Fallback to default if sanitization results in empty string
         const safeOutputFilename = outputFilename || 'output.md';

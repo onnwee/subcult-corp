@@ -55,8 +55,14 @@ export const checkDroidTool: NativeTool = {
         const outputPath = (session.result as Record<string, unknown>)?.output_path as string;
         if (outputPath && session.status === 'succeeded') {
             // Validate outputPath to prevent path traversal
-            const safePath = outputPath.replace(/\.\.\//g, '');
-            if (safePath.startsWith('droids/')) {
+            // Remove all variants of path traversal and normalize
+            const safePath = outputPath
+                .replace(/\.\./g, '')    // Remove all .. sequences
+                .replace(/\/+/g, '/')    // Normalize multiple slashes
+                .replace(/^\//, '');     // Remove leading slash
+            
+            // Must start with droids/ and not contain any remaining suspicious patterns
+            if (safePath.startsWith('droids/') && !safePath.includes('..') && !safePath.includes('//')) {
                 const readResult = await execInToolbox(
                     `cat '/workspace/${safePath}' 2>/dev/null | head -c 5000`,
                     5_000,
