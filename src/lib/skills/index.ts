@@ -1,16 +1,3 @@
-// Skills module — barrel export
-export {
-    getAgentSkills,
-    getAgentTools,
-    getSkill,
-    listAllSkills,
-    agentHasSkill,
-} from './registry';
-
-export {
-    executeSkill,
-    executeSkillWithRetry,
-    checkGatewayHealth,
-    configureOpenClaw,
-    getOpenClawConfig,
-} from './openclaw-bridge';
+// Skills module — DEPRECATED, redirects to native tools
+// All skill functionality has moved to src/lib/tools/
+export { getAgentTools } from '../tools';

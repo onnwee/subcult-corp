@@ -5,11 +5,14 @@
     "scripts": {
         "dev": "next dev",
         "build": "next build",
+        "build:worker": "node scripts/unified-worker/build.mjs",
         "start": "next start",
         "lint": "eslint"
     },
     "dependencies": {
         "@openrouter/sdk": "^0.8.0",
+        "@react-three/drei": "^10.7.7",
+        "@react-three/fiber": "^9.5.0",
         "@tanstack/react-virtual": "^3.13.18",
         "dotenv": "^17.2.4",
         "next": "16.1.6",
@@ -17,13 +20,16 @@
         "react": "19.2.3",
         "react-dom": "19.2.3",
         "react-error-boundary": "^6.1.0",
+        "three": "^0.182.0",
         "zod": "^4.3.6"
     },
     "devDependencies": {
+        "esbuild": "^0.25.0",
         "@tailwindcss/postcss": "^4",
         "@types/node": "^20",
         "@types/react": "^19",
         "@types/react-dom": "^19",
+        "@types/three": "^0.182.0",
         "eslint": "^9",
         "eslint-config-next": "16.1.6",
         "tailwindcss": "^4",

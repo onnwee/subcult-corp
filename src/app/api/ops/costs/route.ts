@@ -26,15 +26,15 @@ function getDateFilter(period: Period): Date | null {
 
 interface AggRow {
     key: string;
-    cost: number;
-    tokens: number;
-    calls: number;
+    cost: string;
+    tokens: string;
+    calls: string;
 }
 
 interface TotalRow {
-    cost: number;
-    tokens: number;
-    calls: number;
+    cost: string;
+    tokens: string;
+    calls: string;
 }
 
 export async function GET(request: NextRequest) {
@@ -62,17 +62,17 @@ export async function GET(request: NextRequest) {
         const totals = dateFilter
             ? await sql<TotalRow[]>`
                 SELECT
-                    COALESCE(SUM(cost_usd), 0)::float8 as cost,
-                    COALESCE(SUM(total_tokens), 0)::bigint as tokens,
-                    COUNT(*)::bigint as calls
+                    COALESCE(SUM(cost_usd), 0)::text as cost,
+                    COALESCE(SUM(total_tokens), 0)::text as tokens,
+                    COUNT(*)::text as calls
                 FROM ops_llm_usage
-                WHERE created_at >= ${dateFilter}
+                WHERE created_at >= ${dateFilter.toISOString()}
             `
             : await sql<TotalRow[]>`
                 SELECT
-                    COALESCE(SUM(cost_usd), 0)::float8 as cost,
-                    COALESCE(SUM(total_tokens), 0)::bigint as tokens,
-                    COUNT(*)::bigint as calls
+                    COALESCE(SUM(cost_usd), 0)::text as cost,
+                    COALESCE(SUM(total_tokens), 0)::text as tokens,
+                    COUNT(*)::text as calls
                 FROM ops_llm_usage
             `;
 
@@ -91,37 +91,37 @@ export async function GET(request: NextRequest) {
                 ? await sql<AggRow[]>`
                     SELECT
                         COALESCE(${sql(groupColumn)}, 'unknown') as key,
-                        COALESCE(SUM(cost_usd), 0)::float8 as cost,
-                        COALESCE(SUM(total_tokens), 0)::bigint as tokens,
-                        COUNT(*)::bigint as calls
+                        COALESCE(SUM(cost_usd), 0)::text as cost,
+                        COALESCE(SUM(total_tokens), 0)::text as tokens,
+                        COUNT(*)::text as calls
                     FROM ops_llm_usage
-                    WHERE created_at >= ${dateFilter}
+                    WHERE created_at >= ${dateFilter.toISOString()}
                     GROUP BY ${sql(groupColumn)}
-                    ORDER BY COALESCE(SUM(cost_usd), 0) DESC
+                    ORDER BY SUM(cost_usd) DESC NULLS LAST
                 `
                 : await sql<AggRow[]>`
                     SELECT
                         COALESCE(${sql(groupColumn)}, 'unknown') as key,
-                        COALESCE(SUM(cost_usd), 0)::float8 as cost,
-                        COALESCE(SUM(total_tokens), 0)::bigint as tokens,
-                        COUNT(*)::bigint as calls
+                        COALESCE(SUM(cost_usd), 0)::text as cost,
+                        COALESCE(SUM(total_tokens), 0)::text as tokens,
+                        COUNT(*)::text as calls
                     FROM ops_llm_usage
                     GROUP BY ${sql(groupColumn)}
-                    ORDER BY COALESCE(SUM(cost_usd), 0) DESC
+                    ORDER BY SUM(cost_usd) DESC NULLS LAST
                 `;
 
             breakdown = rows.map(r => ({
                 key: r.key,
-                cost: r.cost,
-                tokens: r.tokens,
-                calls: r.calls,
+                cost: parseFloat(r.cost),
+                tokens: parseInt(r.tokens, 10),
+                calls: parseInt(r.calls, 10),
             }));
         }
 
         return NextResponse.json({
-            totalCost: totalRow.cost,
-            totalTokens: totalRow.tokens,
-            totalCalls: totalRow.calls,
+            totalCost: parseFloat(totalRow.cost),
+            totalTokens: parseInt(totalRow.tokens, 10),
+            totalCalls: parseInt(totalRow.calls, 10),
             period,
             groupBy,
             breakdown,

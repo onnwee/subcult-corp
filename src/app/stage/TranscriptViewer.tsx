@@ -2,20 +2,20 @@
 // Designed to be printable — clean monospace layout, no bubbles
 'use client';
 
-import { useRef } from 'react';
-import { useConversationTurns } from './hooks';
+import { useRef, useEffect } from 'react';
+import { useConversationTurns, useTurnStream } from './hooks';
 import { AGENTS } from '@/lib/agents';
 import type { AgentId, RoundtableSession, RoundtableTurn } from '@/lib/types';
 
 // ─── Agent voice symbols ───
 
 const VOICE_SYMBOLS: Record<string, string> = {
-    chora: '\u{1F300}',    // 🌀
-    subrosa: '\u{1F339}',  // 🌹
-    thaum: '\u{2728}',     // ✨
-    praxis: '\u{1F6E0}',   // 🛠️
-    mux: '\u{1F5C2}',      // 🗂️
-    primus: '\u{265B}',    // ♛
+    chora: '\u{1F300}', // 🌀
+    subrosa: '\u{1F339}', // 🌹
+    thaum: '\u{2728}', // ✨
+    praxis: '\u{1F6E0}', // 🛠️
+    mux: '\u{1F5C2}', // 🗂️
+    primus: '\u{265B}', // ♛
 };
 
 // ─── Helpers ───
@@ -106,7 +106,9 @@ function TurnEntry({ turn, index }: { turn: RoundtableTurn; index: number }) {
                 <span className='turn-number text-[10px] text-zinc-600 font-mono tabular-nums w-6 text-right shrink-0'>
                     {index + 1}.
                 </span>
-                <span className={`text-xs font-bold uppercase tracking-wide ${textColor}`}>
+                <span
+                    className={`text-xs font-bold uppercase tracking-wide ${textColor}`}
+                >
                     {symbol} {agent?.displayName ?? turn.speaker}
                 </span>
                 <span className='turn-time text-[10px] text-zinc-600 font-mono'>
@@ -144,21 +146,63 @@ export function TranscriptViewer({
     session: RoundtableSession;
     onClose: () => void;
 }) {
-    const { turns, loading } = useConversationTurns(session.id);
+    const isRunning =
+        session.status === 'running' || session.status === 'pending';
+
+    // For running sessions, use SSE streaming
+    const {
+        turns: streamTurns,
+        isLive,
+        loading: streamLoading,
+    } = useTurnStream(isRunning ? session.id : null);
+
+    // For completed/failed sessions, use one-time fetch
+    const { turns: fetchedTurns, loading: fetchLoading } = useConversationTurns(
+        isRunning ? null : session.id,
+    );
+
+    const turns = isRunning ? streamTurns : fetchedTurns;
+    const loading = isRunning ? streamLoading : fetchLoading;
+
     const printRef = useRef<HTMLDivElement>(null);
+    const scrollRef = useRef<HTMLDivElement>(null);
 
     const formatLabel = session.format.replace(/_/g, ' ').toUpperCase();
-    const coordinator = turns.length > 0 ? turns[0].speaker : session.participants[0];
+    const coordinator =
+        turns.length > 0 ? turns[0].speaker : session.participants[0];
     const coordinatorAgent = AGENTS[coordinator as AgentId];
-    const duration = computeDuration(session.started_at ?? session.created_at, session.completed_at);
+    const duration = computeDuration(
+        session.started_at ?? session.created_at,
+        session.completed_at,
+    );
+
+    // Auto-scroll to bottom when new turns arrive during live streaming
+    useEffect(() => {
+        if (isLive && scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+    }, [isLive, turns.length]);
 
     return (
         <div className='rounded-xl border border-zinc-700/50 bg-zinc-900/80 overflow-hidden'>
             {/* Toolbar */}
             <div className='flex items-center justify-between px-4 py-2 border-b border-zinc-800 bg-zinc-900/60'>
-                <span className='text-[10px] uppercase tracking-wider text-zinc-500 font-mono'>
-                    Transcript
-                </span>
+                <div className='flex items-center gap-2'>
+                    <span className='text-[10px] uppercase tracking-wider text-zinc-500 font-mono'>
+                        Transcript
+                    </span>
+                    {isLive && (
+                        <span className='flex items-center gap-1.5 rounded-full bg-accent-green/15 border border-accent-green/30 px-2 py-0.5'>
+                            <span className='relative flex h-1.5 w-1.5'>
+                                <span className='animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-green opacity-75' />
+                                <span className='relative inline-flex rounded-full h-1.5 w-1.5 bg-accent-green' />
+                            </span>
+                            <span className='text-[9px] font-semibold text-accent-green uppercase tracking-wider'>
+                                Live
+                            </span>
+                        </span>
+                    )}
+                </div>
                 <div className='flex items-center gap-2'>
                     <button
                         onClick={() => handlePrint(printRef.current)}
@@ -172,8 +216,18 @@ export function TranscriptViewer({
                         className='text-zinc-500 hover:text-zinc-300 transition-colors p-1 rounded hover:bg-zinc-800'
                         aria-label='Close transcript'
                     >
-                        <svg className='h-3.5 w-3.5' fill='none' viewBox='0 0 24 24' stroke='currentColor' strokeWidth={2}>
-                            <path strokeLinecap='round' strokeLinejoin='round' d='M6 18L18 6M6 6l12 12' />
+                        <svg
+                            className='h-3.5 w-3.5'
+                            fill='none'
+                            viewBox='0 0 24 24'
+                            stroke='currentColor'
+                            strokeWidth={2}
+                        >
+                            <path
+                                strokeLinecap='round'
+                                strokeLinejoin='round'
+                                d='M6 18L18 6M6 6l12 12'
+                            />
                         </svg>
                     </button>
                 </div>
@@ -181,13 +235,15 @@ export function TranscriptViewer({
 
             {/* Printable document body */}
             <div
-                ref={printRef}
+                ref={el => {
+                    printRef.current = el;
+                    scrollRef.current = el;
+                }}
                 className='max-h-[40rem] overflow-y-auto scrollbar-thin scrollbar-track-zinc-900 scrollbar-thumb-zinc-700'
             >
-                {loading ? (
+                {loading ?
                     <TranscriptSkeleton />
-                ) : (
-                    <div className='px-6 py-5 font-mono'>
+                :   <div className='px-6 py-5 font-mono'>
                         {/* Document header */}
                         <div className='header border-b border-zinc-700 pb-4 mb-5'>
                             <h1 className='text-xs font-bold uppercase tracking-[0.2em] text-zinc-400'>
@@ -228,11 +284,15 @@ export function TranscriptViewer({
                                 <span className='meta-label text-[10px] font-bold uppercase tracking-wider text-zinc-500 w-24 shrink-0'>
                                     Status
                                 </span>
-                                <span className={`meta-value text-xs ${
-                                    session.status === 'completed' ? 'text-accent-green'
-                                    : session.status === 'failed' ? 'text-accent-red'
-                                    : 'text-zinc-300'
-                                }`}>
+                                <span
+                                    className={`meta-value text-xs ${
+                                        session.status === 'completed' ?
+                                            'text-accent-green'
+                                        : session.status === 'failed' ?
+                                            'text-accent-red'
+                                        :   'text-zinc-300'
+                                    }`}
+                                >
                                     {session.status.toUpperCase()}
                                 </span>
                             </div>
@@ -241,8 +301,12 @@ export function TranscriptViewer({
                                     <span className='meta-label text-[10px] font-bold uppercase tracking-wider text-zinc-500 w-24 shrink-0'>
                                         Chair
                                     </span>
-                                    <span className={`meta-value text-xs ${coordinatorAgent.tailwindTextColor}`}>
-                                        {VOICE_SYMBOLS[coordinator] ?? ''} {coordinatorAgent.displayName} ({coordinatorAgent.role})
+                                    <span
+                                        className={`meta-value text-xs ${coordinatorAgent.tailwindTextColor}`}
+                                    >
+                                        {VOICE_SYMBOLS[coordinator] ?? ''}{' '}
+                                        {coordinatorAgent.displayName} (
+                                        {coordinatorAgent.role})
                                     </span>
                                 </div>
                             )}
@@ -255,10 +319,14 @@ export function TranscriptViewer({
                             </div>
                             {session.participants.map(p => {
                                 const agent = AGENTS[p as AgentId];
-                                const color = agent?.tailwindTextColor ?? 'text-zinc-400';
+                                const color =
+                                    agent?.tailwindTextColor ?? 'text-zinc-400';
                                 const symbol = VOICE_SYMBOLS[p] ?? '';
                                 return (
-                                    <div key={p} className={`participant ml-4 text-xs ${color}`}>
+                                    <div
+                                        key={p}
+                                        className={`participant ml-4 text-xs ${color}`}
+                                    >
                                         {symbol} {agent?.displayName ?? p}
                                         {agent?.role ? ` — ${agent.role}` : ''}
                                     </div>
@@ -272,15 +340,18 @@ export function TranscriptViewer({
                                 Proceedings
                             </div>
 
-                            {turns.length === 0 ? (
+                            {turns.length === 0 ?
                                 <p className='text-xs text-zinc-500 italic'>
                                     No turns recorded for this session.
                                 </p>
-                            ) : (
-                                turns.map((turn, i) => (
-                                    <TurnEntry key={turn.id} turn={turn} index={i} />
+                            :   turns.map((turn, i) => (
+                                    <TurnEntry
+                                        key={turn.id}
+                                        turn={turn}
+                                        index={i}
+                                    />
                                 ))
-                            )}
+                            }
                         </div>
 
                         {/* Footer */}
@@ -290,7 +361,7 @@ export function TranscriptViewer({
                             </span>
                         </div>
                     </div>
-                )}
+                }
             </div>
         </div>
     );

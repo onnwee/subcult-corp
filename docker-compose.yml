@@ -1,8 +1,9 @@
 # ─── SUBCULT-CORP — Docker Compose ───
+# 4 containers: postgres (pgvector), app, worker, toolbox
 services:
-    # ── PostgreSQL ──
+    # ── PostgreSQL (pgvector) ──
     postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg16
         container_name: subcult-postgres
         restart: unless-stopped
         env_file:
@@ -22,10 +23,6 @@ services:
         networks:
             - internal
 
-    # ── OpenClaw Gateway Bridge — disabled ──
-    # openclaw-host-relay and openclaw-bridge removed.
-    # Re-enable when OpenClaw gateway is needed for skills execution.
-
     # ── Next.js App ──
     app:
         build: .
@@ -40,36 +37,40 @@ services:
             - web
             - internal
 
-    # ── Roundtable Conversation Worker ──
-    roundtable-worker:
+    # ── Unified Worker ──
+    # Handles: roundtable conversations, mission steps, initiatives, agent sessions
+    worker:
         build: .
-        container_name: subcult-roundtable
+        container_name: subcult-worker
         restart: unless-stopped
-        command: ['node', 'scripts/roundtable-worker/worker.mjs']
+        command: ['node', 'scripts/unified-worker/dist/index.js']
         depends_on:
             postgres:
                 condition: service_healthy
         env_file:
             - .env.local
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - workspace:/workspace
         networks:
             - internal
 
-    # ── Initiative Worker ──
-    initiative-worker:
-        build: .
-        container_name: subcult-initiative
+    # ── Toolbox ──
+    # Agent execution environment — bash, python, node, CLI tools
+    # Worker executes commands here via `docker exec subcult-toolbox`
+    toolbox:
+        build:
+            context: docker/toolbox
+        container_name: subcult-toolbox
         restart: unless-stopped
-        command: ['node', 'scripts/initiative-worker/worker.mjs']
-        depends_on:
-            postgres:
-                condition: service_healthy
-        env_file:
-            - .env.local
+        volumes:
+            - workspace:/workspace
         networks:
             - internal
 
 volumes:
     pgdata:
+    workspace:
 
 networks:
     web:
