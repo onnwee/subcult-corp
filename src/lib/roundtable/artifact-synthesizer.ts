@@ -10,7 +10,6 @@ import type {
     RoundtableSession,
     ConversationTurnEntry,
     FormatArtifactConfig,
-    AgentId,
 } from '../types';
 
 const log = logger.child({ module: 'artifact-synthesizer' });

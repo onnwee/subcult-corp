@@ -51,7 +51,7 @@ export function selectNextSpeaker(context: {
     affinityMap?: Map<string, number>;
     format?: ConversationFormat;
 }): string {
-    const { participants, lastSpeaker, history, affinityMap, format } = context;
+    const { participants, lastSpeaker, history, affinityMap } = context;
 
     // Count how many times each agent has spoken
     const speakCounts: Record<string, number> = {};

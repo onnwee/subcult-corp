@@ -1,6 +1,6 @@
 // Conversation format configurations — 16 formats for a living office
 // Each format has a coordinator, purpose, participation requirements, and tuning
-import type { ConversationFormat, FormatConfig, FormatArtifactConfig } from '../types';
+import type { ConversationFormat, FormatConfig } from '../types';
 
 export const FORMATS: Record<ConversationFormat, FormatConfig> = {
     // ─── Structured Operations ───

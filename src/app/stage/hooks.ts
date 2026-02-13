@@ -319,12 +319,12 @@ export function useEventStream(filters?: {
             const params = new URLSearchParams();
             if (agentId) params.set('agent_id', agentId);
             if (kind) params.set('kind', kind);
-            
+
             // Add last_event_id to continue from where we left off
             if (lastEventIdRef.current) {
                 params.set('last_event_id', lastEventIdRef.current);
             }
-            
+
             const url = `/api/ops/events/stream${params.toString() ? `?${params}` : ''}`;
 
             const es = new EventSource(url);
@@ -389,9 +389,8 @@ export function useEventStream(filters?: {
                 // Then connect SSE stream to continue from snapshot
                 if (isMounted) connect();
             })
-            .catch(err => {
-                // Log error but still try to connect SSE
-                console.warn('Initial event fetch failed, connecting SSE anyway:', err);
+            .catch(() => {
+                // Initial event fetch failed, connecting SSE anyway
                 if (isMounted) connect();
             });
 
@@ -427,6 +426,7 @@ export function useTurnStream(sessionId: string | null) {
 
     useEffect(() => {
         if (!sessionId) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- Resetting state when sessionId changes
             setTurns([]);
             setIsLive(false);
             setIsComplete(false);

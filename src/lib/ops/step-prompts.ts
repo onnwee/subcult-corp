@@ -73,7 +73,8 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `Write findings to output/reviews/${today}__audit__security__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.\n` +
         `Rate findings by severity: critical, high, medium, low, info.\n`,
 
-    patch_code: (ctx) =>
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    patch_code: (_ctx) =>
         `Read the relevant source files from projects/ using file_read.\n` +
         `Use bash to make code changes as described in the payload.\n` +
         `Write changed files using file_write to the projects/ directory.\n` +
@@ -89,12 +90,14 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `Write clear, reusable documentation to the appropriate projects/ docs/ directory.\n` +
         `If no specific project, write to output/reports/${today}__docs__lesson__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md.\n`,
 
-    convene_roundtable: (ctx) =>
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    convene_roundtable: (_ctx) =>
         `This step triggers a roundtable conversation.\n` +
         `The payload should specify the format and topic.\n` +
         `Provide a summary of what the roundtable should discuss and why.\n`,
 
-    propose_workflow: (ctx) =>
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    propose_workflow: (_ctx) =>
         `Based on the payload, propose a multi-step workflow.\n` +
         `Each step should specify: agent, step kind, and expected output.\n` +
         `Write the workflow proposal as a structured plan.\n`,

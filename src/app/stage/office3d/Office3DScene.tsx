@@ -65,7 +65,7 @@ function OfficeSceneContent({
             isDragging.current = false;
             setDraggingAgent(agentId);
 
-            const handlePointerMove = (_e: PointerEvent) => {
+            const handlePointerMove = () => {
                 isDragging.current = true;
                 // We handle dragging via raycasting in the frame loop if needed
                 // For simplicity, we use a basic approach

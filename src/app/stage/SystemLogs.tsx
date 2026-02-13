@@ -2,7 +2,7 @@
 // Real-time container health, worker activity, error tracking, agent metrics
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useInterval } from './hooks';
 import { AGENTS } from '@/lib/agents';
 import type { AgentId } from '@/lib/types';
@@ -117,7 +117,7 @@ function StatusPulse({ status }: { status: 'healthy' | 'warning' | 'error' | 'un
 }
 
 // ─── Activity Sparkline (CSS-based mini bar chart) ───
-
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function Sparkline({ data, maxHeight = 24 }: { data: number[]; maxHeight?: number }) {
     const max = Math.max(...data, 1);
     return (
@@ -145,8 +145,14 @@ function HealthGrid({
     agentActivity: AgentActivityRow[];
     recentSessions: SessionRow[];
 }) {
+    const nowRef = useRef(0);
+    useEffect(() => { nowRef.current = Date.now(); });
+    // eslint-disable-next-line react-hooks/purity -- Date.now() needed for time-relative display
+    if (nowRef.current === 0) nowRef.current = Date.now();
+    const now = nowRef.current;
+
     const heartbeatAge = lastHeartbeat
-        ? (Date.now() - new Date(lastHeartbeat.created_at).getTime()) / 1000
+        ? (now - new Date(lastHeartbeat.created_at).getTime()) / 1000
         : Infinity;
     const heartbeatStatus: 'healthy' | 'warning' | 'error' | 'unknown' =
         heartbeatAge < 120 ? 'healthy' :
@@ -156,11 +162,11 @@ function HealthGrid({
     const runningSessions = recentSessions.filter(s => s.status === 'running').length;
     const completedRecently = recentSessions.filter(s =>
         s.status === 'completed' && s.completed_at &&
-        Date.now() - new Date(s.completed_at).getTime() < 3600_000
+        now - new Date(s.completed_at).getTime() < 3600_000
     ).length;
     const failedRecently = recentSessions.filter(s =>
         s.status === 'failed' &&
-        Date.now() - new Date(s.created_at).getTime() < 3600_000
+        now - new Date(s.created_at).getTime() < 3600_000
     ).length;
 
     const totalEventsLastHour = agentActivity.reduce((sum, a) => sum + a.events_last_hour, 0);
@@ -266,6 +272,10 @@ function AgentActivityTable({
     activity: AgentActivityRow[];
     memoryStats: MemoryStat[];
 }) {
+    const nowRef = useRef(0);
+    useEffect(() => { nowRef.current = Date.now(); });
+    // eslint-disable-next-line react-hooks/purity -- Date.now() needed for time-relative display
+    if (nowRef.current === 0) nowRef.current = Date.now();
     const memoryMap = Object.fromEntries(memoryStats.map(m => [m.agent_id, m]));
 
     return (
@@ -293,7 +303,7 @@ function AgentActivityTable({
                             const textColor = agent?.tailwindTextColor ?? 'text-zinc-400';
                             const mem = memoryMap[row.agent_id];
                             const isActive = row.events_last_hour > 0;
-                            const lastActiveMs = Date.now() - new Date(row.last_active).getTime();
+                            const lastActiveMs = nowRef.current - new Date(row.last_active).getTime();
 
                             return (
                                 <tr key={row.agent_id} className='border-b border-zinc-800/30 hover:bg-zinc-800/30'>
@@ -584,7 +594,7 @@ function SessionStatsSummary({ stats }: { stats: SessionStat[] }) {
             {/* Success rate bar */}
             <div className='mt-3 h-1.5 rounded-full bg-zinc-800 overflow-hidden'>
                 <div
-                    className='h-full rounded-full bg-gradient-to-r from-accent-green to-accent-green transition-all duration-500'
+                    className='h-full rounded-full bg-linear-to-r from-accent-green to-accent-green transition-all duration-500'
                     style={{ width: `${successRate}%` }}
                 />
             </div>

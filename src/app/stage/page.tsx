@@ -58,7 +58,7 @@ export default function StagePage() {
                         <SectionErrorBoundary label='Event Log'>
                             <Suspense fallback={<EventLogFeedSkeleton />}>
                                 <EventLogFeed
-                                    onConnectionStatus={handleConnectionStatus}
+                                    onConnectionStatusAction={handleConnectionStatus}
                                 />
                             </Suspense>
                         </SectionErrorBoundary>
@@ -117,7 +117,7 @@ export default function StagePage() {
                             <SectionErrorBoundary label='Event Log'>
                                 <Suspense fallback={<EventLogFeedSkeleton />}>
                                     <EventLogFeed
-                                        onConnectionStatus={
+                                        onConnectionStatusAction={
                                             handleConnectionStatus
                                         }
                                     />

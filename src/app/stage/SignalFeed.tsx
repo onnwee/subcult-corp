@@ -101,6 +101,7 @@ export function SignalFeed({
         limit: 500,
     });
 
+    // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual API is intentionally used
     const virtualizer = useVirtualizer({
         count: events.length,
         getScrollElement: () => parentRef.current,
@@ -130,7 +131,7 @@ export function SignalFeed({
     return (
         <div
             ref={parentRef}
-            className='h-[600px] overflow-auto rounded-lg scrollbar-thin scrollbar-track-zinc-900 scrollbar-thumb-zinc-700'
+            className='h-150 overflow-auto rounded-lg scrollbar-thin scrollbar-track-zinc-900 scrollbar-thumb-zinc-700'
         >
             <div
                 className='relative w-full'

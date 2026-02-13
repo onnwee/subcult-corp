@@ -642,6 +642,7 @@ export function RelationshipGraph() {
     useEffect(() => {
         if (relationships.length === 0) return;
         const layout = computeLayout(AGENT_IDS, edges);
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- Initial layout from relationships
         setPositions(layout);
     }, [relationships, edges]);
 
@@ -703,7 +704,7 @@ export function RelationshipGraph() {
     if (loading) {
         return (
             <div className='rounded-xl border border-zinc-800 bg-zinc-900/50 p-8'>
-                <div className='h-[400px] rounded-lg bg-zinc-800/40 animate-pulse flex items-center justify-center'>
+                <div className='h-100 rounded-lg bg-zinc-800/40 animate-pulse flex items-center justify-center'>
                     <span className='text-zinc-600 text-sm'>
                         Loading relationship graph...
                     </span>
@@ -853,7 +854,7 @@ export function RelationshipGraph() {
                             onClearSelection={handleClearSelection}
                         />
                     ) : (
-                        <div className='h-[400px] flex items-center justify-center text-zinc-500 text-sm'>
+                        <div className='h-100 flex items-center justify-center text-zinc-500 text-sm'>
                             No relationship data yet. Relationships form as
                             agents interact in roundtable conversations.
                         </div>

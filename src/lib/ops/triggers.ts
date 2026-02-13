@@ -115,6 +115,7 @@ async function checkTrigger(rule: TriggerRule): Promise<TriggerCheckResult> {
 async function checkMissionFailed(
     conditions: Record<string, unknown>,
     targetAgent: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _action: string,
 ): Promise<TriggerCheckResult> {
     const lookback = (conditions.lookback_minutes as number) ?? 60;

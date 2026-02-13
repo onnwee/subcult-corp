@@ -1,5 +1,4 @@
 // Memory distiller — extract memories + drifts + action items from conversations
-import { sql } from '@/lib/db';
 import { llmGenerate } from '../llm';
 import { writeMemory, enforceMemoryCap } from './memory';
 import { applyPairwiseDrifts } from './relationships';

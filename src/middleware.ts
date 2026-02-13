@@ -17,9 +17,6 @@ export function middleware(request: NextRequest) {
     const requestId =
         request.headers.get('x-request-id') ?? generateRequestId();
 
-    const method = request.method;
-    const path = new URL(request.url).pathname;
-
     // We cannot use AsyncLocalStorage.run() in Edge middleware directly,
     // but we CAN pass the request ID via headers so the API route handler
     // can pick it up and establish the context.

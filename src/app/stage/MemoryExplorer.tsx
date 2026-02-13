@@ -682,7 +682,7 @@ export function MemoryExplorer() {
                         wait for agents to form new memories.
                     </div>
                 ) : (
-                    <div className='h-[32rem] overflow-y-auto scrollbar-thin scrollbar-track-zinc-900 scrollbar-thumb-zinc-700'>
+                    <div className='h-128 overflow-y-auto scrollbar-thin scrollbar-track-zinc-900 scrollbar-thumb-zinc-700'>
                         <div className='px-3 py-2 space-y-4'>
                             {groupedMemories.map(group => (
                                 <div key={group.date}>

@@ -1,7 +1,7 @@
 // Cron Scheduler — evaluates cron schedules and enqueues agent sessions
 // Called by the heartbeat (Phase 8). Uses cron-parser to compute next fire times.
 
-import { sql, jsonb } from '@/lib/db';
+import { sql } from '@/lib/db';
 import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'cron-scheduler' });
@@ -57,7 +57,8 @@ function shouldFire(cronExpr: string, timezone: string, lastFiredAt: string | nu
 }
 
 /** Match a single cron field against a value */
-function matchField(field: string, value: number, min: number, max: number): boolean {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function matchField(field: string, value: number, _min: number, _max: number): boolean {
     if (field === '*') return true;
 
     // Handle */N (every N)

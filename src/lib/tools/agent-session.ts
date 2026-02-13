@@ -25,8 +25,8 @@ export async function executeAgentSession(session: AgentSession): Promise<void> 
     const agentId = session.agent_id as AgentId;
     const allToolCalls: ToolCallRecord[] = [];
     let llmRounds = 0;
-    let totalTokens = 0;
-    let totalCost = 0;
+    const totalTokens = 0;
+    const totalCost = 0;
 
     // Mark session as running
     await sql`

@@ -32,6 +32,7 @@ const ALL_TOOLS: NativeTool[] = [
 export function getAgentTools(agentId: AgentId): ToolDefinition[] {
     return ALL_TOOLS
         .filter(tool => tool.agents.includes(agentId))
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         .map(({ agents: _agents, ...tool }) => {
             // Bind agentId into file_write's execute for path ACL enforcement
             if (tool.name === 'file_write') {
@@ -49,6 +50,7 @@ export function getDroidTools(droidId: string): ToolDefinition[] {
     const droidToolNames = ['file_read', 'file_write', 'bash', 'web_search', 'web_fetch'];
     return ALL_TOOLS
         .filter(tool => droidToolNames.includes(tool.name))
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         .map(({ agents: _agents, ...tool }) => {
             if (tool.name === 'file_write') {
                 return { ...tool, execute: createFileWriteExecute(droidId) };

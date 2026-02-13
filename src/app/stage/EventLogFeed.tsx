@@ -142,7 +142,7 @@ function MetadataViewer({ data }: { data: Record<string, unknown> }) {
             <div className='text-[10px] uppercase tracking-wider text-zinc-500 mb-1'>
                 Metadata
             </div>
-            <pre className='text-[11px] text-zinc-400 font-mono whitespace-pre-wrap break-words leading-relaxed'>
+            <pre className='text-[11px] text-zinc-400 font-mono whitespace-pre-wrap wrap-break-word leading-relaxed'>
                 {JSON.stringify(data, null, 2)}
             </pre>
         </div>
@@ -471,8 +471,8 @@ const CONVERSATION_EVENT_KINDS = new Set([
 ]);
 
 export function EventLogFeed({
-    onConnectionStatus,
-}: { onConnectionStatus?: (status: ConnectionStatus) => void } = {}) {
+    onConnectionStatusAction,
+}: { onConnectionStatusAction?: (status: ConnectionStatus) => void } = {}) {
     const [activeTab, setActiveTab] = useState<FeedTab>('all');
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
     const [showSessions, setShowSessions] = useState(true);
@@ -488,8 +488,8 @@ export function EventLogFeed({
 
     // Propagate connection status to parent
     useEffect(() => {
-        onConnectionStatus?.(connectionStatus);
-    }, [connectionStatus, onConnectionStatus]);
+        onConnectionStatusAction?.(connectionStatus);
+    }, [connectionStatus, onConnectionStatusAction]);
     const { sessions, loading: sessionsLoading } = useConversations(10);
 
     // Build session lookup by ID for inline transcripts

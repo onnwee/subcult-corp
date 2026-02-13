@@ -86,9 +86,9 @@ export function keepAlive(
 
         try {
             await writer.write(':keepalive\n\n');
-        } catch (error) {
+        } catch {
             // Writer is likely closed, stop keepalive
-            console.error('SSE keepalive error:', error);
+            // SSE keepalive error - writer is likely closed, stop keepalive
             isActive = false;
             return;
         }
