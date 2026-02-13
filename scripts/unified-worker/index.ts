@@ -226,10 +226,10 @@ async function pollMissionSteps(): Promise<boolean> {
         log.error('Mission step failed', { error: err, stepId: step.id });
 
         // Get the agent session ID if it was created before the error
-        const stepData = await sql<Array<{ result: any }>>`
+        const stepData = await sql<Array<{ result: Record<string, unknown> }>>`
             SELECT result FROM ops_mission_steps WHERE id = ${step.id}
         `;
-        const agentSessionId = stepData[0]?.result?.agent_session_id;
+        const agentSessionId = (stepData[0]?.result as Record<string, unknown>)?.agent_session_id as string | undefined;
 
         await sql`
             UPDATE ops_mission_steps
@@ -246,7 +246,7 @@ async function pollMissionSteps(): Promise<boolean> {
                 UPDATE ops_agent_sessions
                 SET status = 'failed',
                     error = ${(err as Error).message},
-                    updated_at = NOW()
+                    completed_at = NOW()
                 WHERE id = ${agentSessionId}
                   AND status = 'pending'
             `;
@@ -267,8 +267,8 @@ async function finalizeMissionSteps(): Promise<boolean> {
         session_status: string | null;
         session_error: string | null;
     }>>`
-        SELECT 
-            s.id, 
+        SELECT
+            s.id,
             s.mission_id,
             sess.status as session_status,
             sess.error as session_error

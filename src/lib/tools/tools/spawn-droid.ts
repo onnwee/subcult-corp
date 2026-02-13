@@ -33,23 +33,23 @@ export const spawnDroidTool: NativeTool = {
     execute: async (params) => {
         const task = params.task as string;
         const rawOutputFilename = (params.output_path as string) ?? 'output.md';
-        
+
         // Sanitize output_path: remove all path traversal attempts and unsafe characters
         const outputFilename = rawOutputFilename
             .replace(/\.\./g, '')                 // Remove all .. sequences (including ../ and ..\)
             .replace(/[^a-zA-Z0-9._-]/g, '_')     // Replace unsafe chars with underscore
             .replace(/^[._-]+/, '')               // Remove leading dots/dashes
             .slice(0, 128);                       // Limit length
-        
+
         // Fallback to default if sanitization results in empty string
         const safeOutputFilename = outputFilename || 'output.md';
-        
+
         const timeout = Math.min(
             (params.timeout_seconds as number) ?? DEFAULT_DROID_TIMEOUT,
             MAX_DROID_TIMEOUT,
         );
 
-        const droidId = `droid-${randomUUID()}`;
+        const droidId = `droid-${randomUUID().slice(0, 8)}`;
         const droidDir = `/workspace/droids/${droidId}`;
         const outputPath = `droids/${droidId}/${safeOutputFilename}`;
 

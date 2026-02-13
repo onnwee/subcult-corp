@@ -49,22 +49,9 @@ services:
                 condition: service_healthy
         env_file:
             - .env.local
-        environment:
-            DOCKER_HOST: tcp://docker:2375
         volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
             - workspace:/workspace
-        networks:
-            - internal
-
-    # ── Docker Daemon (isolated) ──
-    # Rootless Docker-in-Docker; worker connects via DOCKER_HOST
-    docker:
-        image: docker:27-dind-rootless
-        container_name: subcult-docker
-        restart: unless-stopped
-        privileged: true
-        environment:
-            DOCKER_TLS_CERTDIR: ""
         networks:
             - internal
 
