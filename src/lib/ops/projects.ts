@@ -135,17 +135,8 @@ export async function updateProject(
     slug: string,
     updates: Partial<Pick<Project, 'title' | 'description' | 'status' | 'lead_agent' | 'participants' | 'prime_directive' | 'metadata'>>,
 ): Promise<Project | null> {
-    const fields: string[] = [];
-    const values: unknown[] = [];
-
-    if (updates.title !== undefined) { fields.push('title'); values.push(updates.title); }
-    if (updates.description !== undefined) { fields.push('description'); values.push(updates.description); }
-    if (updates.status !== undefined) { fields.push('status'); values.push(updates.status); }
-    if (updates.lead_agent !== undefined) { fields.push('lead_agent'); values.push(updates.lead_agent); }
-    if (updates.participants !== undefined) { fields.push('participants'); values.push(updates.participants); }
-    if (updates.prime_directive !== undefined) { fields.push('prime_directive'); values.push(updates.prime_directive); }
-
-    if (fields.length === 0) return getProject(slug);
+    // Early return if no updates provided
+    if (Object.keys(updates).length === 0) return getProject(slug);
 
     // Build dynamic update using tagged template
     const [row] = await sql<[Project?]>`

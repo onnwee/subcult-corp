@@ -242,10 +242,20 @@ async function pollMissionSteps(): Promise<boolean> {
 
 /** Finalize mission steps based on their agent session status */
 async function finalizeMissionSteps(): Promise<boolean> {
-    // Find running steps that have an associated agent session which has completed
-    const steps = await sql`
-        SELECT s.id, s.mission_id, s.result
+    // Find running steps with their associated agent session status in a single query
+    const steps = await sql<Array<{
+        id: string;
+        mission_id: string;
+        session_status: string | null;
+        session_error: string | null;
+    }>>`
+        SELECT 
+            s.id, 
+            s.mission_id,
+            sess.status as session_status,
+            sess.error as session_error
         FROM ops_mission_steps s
+        LEFT JOIN ops_agent_sessions sess ON sess.id = (s.result->>'agent_session_id')::text
         WHERE s.status = 'running'
         AND s.result->>'agent_session_id' IS NOT NULL
     `;
@@ -254,22 +264,10 @@ async function finalizeMissionSteps(): Promise<boolean> {
 
     let finalized = 0;
     for (const step of steps) {
-        // Validate result structure before accessing
-        if (!step.result || typeof step.result !== 'object') continue;
-        
-        const sessionId = (step.result as { agent_session_id?: string }).agent_session_id;
-        if (!sessionId) continue;
-        
-        // Check if the agent session has completed
-        const [session] = await sql<[{ status: string; error: string | null }?]>`
-            SELECT status, error
-            FROM ops_agent_sessions
-            WHERE id = ${sessionId}
-        `;
+        // Skip if session not found or still running/pending
+        if (!step.session_status) continue;
 
-        if (!session) continue;
-
-        if (session.status === 'succeeded') {
+        if (step.session_status === 'succeeded') {
             await sql`
                 UPDATE ops_mission_steps
                 SET status = 'succeeded',
@@ -279,11 +277,11 @@ async function finalizeMissionSteps(): Promise<boolean> {
             `;
             finalized++;
             await finalizeMissionIfComplete(step.mission_id);
-        } else if (session.status === 'failed') {
+        } else if (step.session_status === 'failed') {
             await sql`
                 UPDATE ops_mission_steps
                 SET status = 'failed',
-                    failure_reason = ${session.error ?? 'Agent session failed'},
+                    failure_reason = ${step.session_error ?? 'Agent session failed'},
                     completed_at = NOW(),
                     updated_at = NOW()
                 WHERE id = ${step.id}

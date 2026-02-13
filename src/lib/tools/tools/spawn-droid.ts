@@ -55,12 +55,12 @@ export const spawnDroidTool: NativeTool = {
 
         // Create droid workspace
         try {
-            await execInToolbox(`mkdir -p ${droidDir}/output`, 5_000);
+            await execInToolbox(`mkdir -p '${droidDir}/output'`, 5_000);
 
             // Write task description
             const taskContent = `# Droid Task\n\nID: ${droidId}\nCreated: ${new Date().toISOString()}\n\n## Task\n\n${task}\n\n## Output\n\nWrite results to: ${outputPath}\n`;
             const b64 = Buffer.from(taskContent).toString('base64');
-            await execInToolbox(`echo '${b64}' | base64 -d > ${droidDir}/task.md`, 5_000);
+            await execInToolbox(`echo '${b64}' | base64 -d > '${droidDir}/task.md'`, 5_000);
         } catch {
             return { error: 'Failed to create droid workspace' };
         }
