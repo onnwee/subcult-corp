@@ -13,13 +13,15 @@ import { selectFirstSpeaker, selectNextSpeaker } from './speaker-selection';
 import { llmGenerate, sanitizeDialogue } from '../llm';
 import { emitEvent } from '../ops/events';
 import { distillConversationMemories } from '../ops/memory-distiller';
+import { synthesizeArtifact } from './artifact-synthesizer';
 import {
     loadAffinityMap,
     getAffinityFromMap,
     getInteractionType,
 } from '../ops/relationships';
 import { deriveVoiceModifiers } from '../ops/voice-evolution';
-import { getAgentTools } from '../skills';
+import { loadPrimeDirective } from '../ops/prime-directive';
+import { getAgentTools } from '../tools';
 import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'orchestrator' });
@@ -37,6 +39,7 @@ function buildSystemPrompt(
     interactionType?: string,
     voiceModifiers?: string[],
     availableTools?: ToolDefinition[],
+    primeDirective?: string,
 ): string {
     const voice = getVoice(speakerId);
     if (!voice) {
@@ -46,6 +49,11 @@ function buildSystemPrompt(
     const formatConfig = getFormat(format);
 
     let prompt = `${voice.systemDirective}\n\n`;
+
+    if (primeDirective) {
+        prompt += `═══ PRIME DIRECTIVE ═══\n${primeDirective}\n\n`;
+    }
+
     prompt += `═══ CONVERSATION CONTEXT ═══\n`;
     prompt += `FORMAT: ${format} — ${formatConfig.purpose}\n`;
     prompt += `TOPIC: ${topic}\n`;
@@ -98,7 +106,7 @@ function buildSystemPrompt(
 
     if (availableTools && availableTools.length > 0) {
         prompt += `\n═══ AVAILABLE TOOLS ═══\n`;
-        prompt += `You have access to the following tools via OpenClaw. Use them when the conversation would benefit from real data, research, or action.\n`;
+        prompt += `You have access to the following tools. Use them when the conversation would benefit from real data, research, or action.\n`;
         prompt += `Tools: ${availableTools.map(t => t.name).join(', ')}\n`;
         prompt += `- Only invoke a tool if it directly serves the current discussion\n`;
         prompt += `- Your dialogue response should incorporate or react to tool results naturally\n`;
@@ -171,6 +179,14 @@ export async function orchestrateConversation(
 
     // Load affinity map once for the entire conversation
     const affinityMap = await loadAffinityMap();
+
+    // Load prime directive once per conversation (best-effort)
+    let primeDirective = '';
+    try {
+        primeDirective = await loadPrimeDirective();
+    } catch {
+        // Continue without directive
+    }
 
     // Pre-load tools for each participant (cached per conversation)
     const agentToolsMap = new Map<string, ToolDefinition[]>();
@@ -261,6 +277,7 @@ export async function orchestrateConversation(
             interactionType,
             voiceModifiersMap.get(speaker),
             agentToolsMap.get(speaker),
+            primeDirective,
         );
         const userPrompt = buildUserPrompt(
             session.topic,
@@ -399,6 +416,19 @@ export async function orchestrateConversation(
                 error: err,
                 sessionId: session.id,
             });
+        }
+
+        // Synthesize artifact from conversation
+        try {
+            const artifactSessionId = await synthesizeArtifact(session, history);
+            if (artifactSessionId) {
+                log.info('Artifact synthesis queued', {
+                    sessionId: session.id,
+                    artifactSession: artifactSessionId,
+                });
+            }
+        } catch (err) {
+            log.error('Artifact synthesis failed', { error: err, sessionId: session.id });
         }
     }
 

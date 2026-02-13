@@ -19,6 +19,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build
 
+# Bundle the unified worker (resolves @/ path aliases from src/lib/)
+RUN node scripts/unified-worker/build.mjs
+
 # ── Production image ──
 FROM base AS runner
 WORKDIR /app
@@ -33,12 +36,12 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copy worker scripts + workspace data + migrations (needed at runtime)
-COPY --from=builder /app/scripts ./scripts
+# Copy unified worker bundle + workspace data + migrations
+COPY --from=builder /app/scripts/unified-worker/dist ./scripts/unified-worker/dist
 COPY --from=builder /app/workspace ./workspace
 COPY --from=builder /app/db ./db
 
-# Workers need full node_modules (they import postgres, @openrouter/sdk, dotenv directly)
+# Workers need runtime dependencies
 COPY --from=deps /app/node_modules ./node_modules
 
 USER nextjs

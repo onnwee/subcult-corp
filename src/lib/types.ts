@@ -263,6 +263,15 @@ export interface RoundtableVoice {
     systemDirective: string;
 }
 
+export type ArtifactType = 'briefing' | 'report' | 'review' | 'digest' | 'plan' | 'code' | 'none';
+
+export interface FormatArtifactConfig {
+    type: ArtifactType;
+    outputDir: string;
+    template?: string;
+    synthesizer: AgentId;
+}
+
 export interface FormatConfig {
     coordinatorRole: AgentId;
     purpose: string;
@@ -275,6 +284,8 @@ export interface FormatConfig {
     optional?: AgentId[];
     /** Default model for this format tier. Session-level override takes priority. */
     defaultModel?: string;
+    /** What artifact this conversation format should produce after completion */
+    artifact?: FormatArtifactConfig;
 }
 
 export interface ScheduleSlot {
@@ -367,53 +378,46 @@ export interface ToolCallRecord {
     result?: unknown;
 }
 
-/**
- * Skill definition that maps to an OpenClaw skill.
- * Each skill becomes one or more tools available to specific agents.
- */
+// ─── Legacy OpenClaw / Skills Types ───
+// These are shims to satisfy existing imports from src/lib/skills/*.
+// New code should prefer the native tool types in src/lib/tools/.
+
 export interface SkillDefinition {
-    /** Unique skill identifier (matches OpenClaw skill ID) */
-    id: string;
-    /** Human-readable name */
+    /** Unique name of the skill */
     name: string;
-    /** What this skill does */
-    description: string;
-    /** Which agents can use this skill */
-    agents: AgentId[];
-    /** Whether this skill requires OpenClaw gateway (vs local execution) */
-    requiresGateway: boolean;
-    /** Tool definitions this skill provides */
-    tools: ToolDefinition[];
-    /** Whether the skill is currently enabled */
-    enabled: boolean;
+    /** Human-readable description of what the skill does */
+    description?: string;
+    /** JSON-serializable parameters schema or metadata */
+    parameters?: Record<string, unknown>;
+    /**
+     * Optional handler used by the legacy skills system to execute the skill.
+     * The exact signature is intentionally permissive for compatibility.
+     */
+    handler?: (args: unknown, context?: unknown) => unknown | Promise<unknown>;
 }
 
-/** Agent-to-skills mapping (runtime registry) */
-export interface AgentSkillSet {
-    agentId: AgentId;
-    skills: SkillDefinition[];
-    tools: ToolDefinition[];
-}
+/** Mapping of skill names to their definitions for a given agent */
+export type AgentSkillSet = Record<string, SkillDefinition>;
 
-/** OpenClaw gateway connection config */
+/** Top-level configuration object for the legacy OpenClaw system */
 export interface OpenClawConfig {
-    gatewayUrl: string;
-    /** Auth token for the gateway */
-    authToken?: string;
-    /** Timeout for skill execution in ms */
-    timeoutMs: number;
-    /** Whether the gateway is available */
-    available: boolean;
+    /** Optional registry of skills available to agents */
+    skills?: AgentSkillSet;
+    /** Allow additional configuration properties used by legacy code */
+    [key: string]: unknown;
 }
 
-/** Result from executing a skill via OpenClaw */
+/** Result object returned from executing a legacy skill */
 export interface SkillExecutionResult {
+    /** Whether the skill executed successfully */
     success: boolean;
-    skillId: string;
-    output: unknown;
-    error?: string;
-    durationMs: number;
+    /** Primary output payload from the skill, if any */
+    output?: unknown;
+    /** Error information if the skill failed */
+    error?: unknown;
 }
+
+// OpenClaw types removed — see src/lib/tools/ for native tool types
 
 // ─── Memory Types ───
 

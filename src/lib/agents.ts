@@ -1,4 +1,4 @@
-// Agent configuration — OpenClaw personality framework
+// Agent configuration — personality framework
 // 6 agents: Chora (analyst), Subrosa (protector), Thaum (innovator), Praxis (executor), Mux (operations), Primus (sovereign)
 import type { AgentConfig, AgentId } from './types';
 

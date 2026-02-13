@@ -32,7 +32,9 @@ const KIND_ICONS: Record<string, string> = {
     initiative_queued: '🧠',
     memory_stored: '🧬',
     heartbeat: '💓',
-    // OpenClaw event kinds
+    // Agent session event kinds
+    agent_session_completed: '🟢',
+    agent_session_failed: '🔴',
     skill_execution: '🔧',
     action_run: '▶️',
     cron_run: '⏱️',
@@ -60,7 +62,9 @@ const KIND_LABELS: Record<string, string> = {
     initiative_queued: 'Initiative Queued',
     memory_stored: 'Memory Stored',
     heartbeat: 'Heartbeat',
-    // OpenClaw event kinds
+    // Agent session event kinds
+    agent_session_completed: 'Session Completed',
+    agent_session_failed: 'Session Failed',
     skill_execution: 'Skill Execution',
     action_run: 'Action Run',
     cron_run: 'Cron Run',
@@ -367,7 +371,7 @@ function SessionCard({
 
 // ─── Filter Bar ───
 
-type FeedTab = 'all' | 'conversations' | 'missions' | 'system' | 'openclaw';
+type FeedTab = 'all' | 'conversations' | 'missions' | 'system' | 'sessions';
 
 const TAB_FILTERS: Record<FeedTab, string[] | null> = {
     all: null,
@@ -398,15 +402,11 @@ const TAB_FILTERS: Record<FeedTab, string[] | null> = {
         'heartbeat',
         'health_check',
     ],
-    openclaw: [
-        'skill_execution',
-        'action_run',
+    sessions: [
+        'agent_session_completed',
+        'agent_session_failed',
         'cron_run',
-        'model_fallback',
-        'alert_sent',
-        'agent_session',
-        'health_check',
-        'health_score',
+        'action_run',
     ],
 };
 
@@ -422,7 +422,7 @@ function FeedTabs({
         { key: 'conversations', label: 'Conversations', icon: '💬' },
         { key: 'missions', label: 'Missions', icon: '🎯' },
         { key: 'system', label: 'System', icon: '⚙️' },
-        { key: 'openclaw', label: 'OpenClaw', icon: '🐾' },
+        { key: 'sessions', label: 'Sessions', icon: '🤖' },
     ];
 
     return (
