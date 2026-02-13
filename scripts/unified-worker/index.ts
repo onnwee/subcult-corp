@@ -56,13 +56,6 @@ async function pollAgentSessions(): Promise<boolean> {
 
     if (!session) return false;
 
-    // Reset to pending so executeAgentSession can manage the status
-    await sql`
-        UPDATE ops_agent_sessions
-        SET status = 'pending'
-        WHERE id = ${session.id}
-    `;
-
     log.info('Processing agent session', {
         sessionId: session.id,
         agent: session.agent_id,
@@ -209,17 +202,10 @@ async function pollMissionSteps(): Promise<boolean> {
             WHERE id = ${step.id}
         `;
 
-        // The agent session will be picked up by pollAgentSessions().
-        // We mark the step as succeeded optimistically — the session handles its own status.
-        // A more robust approach would be to poll the session, but for now
-        // we mark succeeded and let the session produce output independently.
-        await sql`
-            UPDATE ops_mission_steps
-            SET status = 'succeeded',
-                completed_at = NOW(),
-                updated_at = NOW()
-            WHERE id = ${step.id}
-        `;
+        // Keep the step in 'running' status until the agent session completes.
+        // The step will be finalized by a separate process that monitors agent sessions,
+        // or can be manually updated based on the session result.
+        // This prevents downstream steps from starting before the session completes.
 
         await emitEvent({
             agent_id: agentId,
@@ -234,8 +220,7 @@ async function pollMissionSteps(): Promise<boolean> {
             },
         });
 
-        // Try to finalize mission
-        await finalizeMissionIfComplete(step.mission_id);
+        // Note: Do NOT call finalizeMissionIfComplete here since the step is still running
 
     } catch (err) {
         log.error('Mission step failed', { error: err, stepId: step.id });
@@ -253,6 +238,59 @@ async function pollMissionSteps(): Promise<boolean> {
     }
 
     return true;
+}
+
+/** Finalize mission steps based on their agent session status */
+async function finalizeMissionSteps(): Promise<boolean> {
+    // Find running steps that have an associated agent session which has completed
+    const steps = await sql`
+        SELECT s.id, s.mission_id, s.result
+        FROM ops_mission_steps s
+        WHERE s.status = 'running'
+        AND s.result->>'agent_session_id' IS NOT NULL
+    `;
+
+    if (steps.length === 0) return false;
+
+    let finalized = 0;
+    for (const step of steps) {
+        const sessionId = (step.result as { agent_session_id: string }).agent_session_id;
+        
+        // Check if the agent session has completed
+        const [session] = await sql<[{ status: string; error: string | null }?]>`
+            SELECT status, error
+            FROM ops_agent_sessions
+            WHERE id = ${sessionId}
+        `;
+
+        if (!session) continue;
+
+        if (session.status === 'succeeded') {
+            await sql`
+                UPDATE ops_mission_steps
+                SET status = 'succeeded',
+                    completed_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = ${step.id}
+            `;
+            finalized++;
+            await finalizeMissionIfComplete(step.mission_id);
+        } else if (session.status === 'failed') {
+            await sql`
+                UPDATE ops_mission_steps
+                SET status = 'failed',
+                    failure_reason = ${session.error ?? 'Agent session failed'},
+                    completed_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = ${step.id}
+            `;
+            finalized++;
+            await finalizeMissionIfComplete(step.mission_id);
+        }
+        // If still running/pending, leave it alone
+    }
+
+    return finalized > 0;
 }
 
 /** Poll and process pending initiatives */
@@ -408,6 +446,9 @@ async function pollLoop(): Promise<void> {
 
             // Mission steps — check every other loop
             await pollMissionSteps();
+
+            // Finalize mission steps based on agent session completion
+            await finalizeMissionSteps();
 
             // Initiatives — check every other loop
             await pollInitiatives();

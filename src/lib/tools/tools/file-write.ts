@@ -142,6 +142,10 @@ export const fileWriteTool: NativeTool = {
         },
         required: ['path', 'content'],
     },
-    // Default execute (no ACL enforcement) — overridden per-agent in registry
-    execute: createFileWriteExecute(''),
+    // Default execute explicitly fails — tool must be bound to an agentId via registry
+    execute: async () => {
+        return {
+            error: 'file_write tool must be bound to an agent ID. This tool should only be used through the registry with getAgentTools() or getDroidTools().',
+        };
+    },
 };

@@ -11,7 +11,6 @@ import { getPolicy } from '@/lib/ops/policy';
 import { checkScheduleAndEnqueue } from '@/lib/roundtable/orchestrator';
 import { learnFromOutcomes } from '@/lib/ops/outcome-learner';
 import { checkAndQueueInitiatives } from '@/lib/ops/initiative';
-import { evaluateCronSchedules } from '@/lib/ops/cron-scheduler';
 import { checkArtifactFreshness } from '@/lib/ops/artifact-health';
 import { logger } from '@/lib/logger';
 import { withRequestContext } from '@/middleware';
@@ -112,15 +111,7 @@ export async function GET(req: NextRequest) {
             log.error('Stale proposal expiry failed', { error: err });
         }
 
-        // ── Phase 8: Evaluate cron schedules ──
-        try {
-            results.cron = await evaluateCronSchedules();
-        } catch (err) {
-            results.cron = { error: (err as Error).message };
-            log.error('Cron schedule evaluation failed', { error: err });
-        }
-
-        // ── Phase 9: Artifact freshness check ──
+        // ── Phase 8: Artifact freshness check ──
         try {
             results.artifacts = await checkArtifactFreshness();
         } catch (err) {

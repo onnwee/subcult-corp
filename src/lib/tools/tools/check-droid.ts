@@ -20,8 +20,10 @@ export const checkDroidTool: NativeTool = {
     execute: async (params) => {
         const droidId = params.droid_id as string;
 
-        if (!droidId.startsWith('droid-')) {
-            return { error: 'Invalid droid ID format. Expected "droid-<id>".' };
+        // Strict validation: droid IDs must be exactly "droid-" followed by 8 hex chars
+        const droidIdRegex = /^droid-[0-9a-f]{8}$/;
+        if (!droidIdRegex.test(droidId)) {
+            return { error: 'Invalid droid ID format. Expected "droid-<8-hex-chars>".' };
         }
 
         // Check agent session status
@@ -44,19 +46,24 @@ export const checkDroidTool: NativeTool = {
         }
 
         // List files in droid workspace
+        // droidId is validated, but use single quotes for extra safety
         const droidDir = `/workspace/droids/${droidId}`;
-        const lsResult = await execInToolbox(`ls -la ${droidDir}/ 2>/dev/null || echo "(empty)"`, 5_000);
+        const lsResult = await execInToolbox(`ls -la '${droidDir}/' 2>/dev/null || echo "(empty)"`, 5_000);
 
         // Read output file if it exists
         let outputContent: string | null = null;
         const outputPath = (session.result as Record<string, unknown>)?.output_path as string;
         if (outputPath && session.status === 'succeeded') {
-            const readResult = await execInToolbox(
-                `cat /workspace/${outputPath} 2>/dev/null | head -c 5000`,
-                5_000,
-            );
-            if (readResult.exitCode === 0 && readResult.stdout.trim()) {
-                outputContent = readResult.stdout.trim();
+            // Validate outputPath to prevent path traversal
+            const safePath = outputPath.replace(/\.\.\//g, '');
+            if (safePath.startsWith('droids/')) {
+                const readResult = await execInToolbox(
+                    `cat '/workspace/${safePath}' 2>/dev/null | head -c 5000`,
+                    5_000,
+                );
+                if (readResult.exitCode === 0 && readResult.stdout.trim()) {
+                    outputContent = readResult.stdout.trim();
+                }
             }
         }
 

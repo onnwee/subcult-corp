@@ -4,9 +4,6 @@
 import { sql } from '@/lib/db';
 import { execInToolbox } from '@/lib/tools/executor';
 import { emitEvent } from './events';
-import { logger } from '@/lib/logger';
-
-const log = logger.child({ module: 'artifact-health' });
 
 export interface ArtifactHealthResult {
     manifest_entries_today: number;

@@ -2,7 +2,7 @@
 // After a roundtable conversation completes, this creates an agent session
 // that synthesizes the discussion into a structured artifact (report, briefing, etc.)
 
-import { sql, jsonb } from '@/lib/db';
+import { sql } from '@/lib/db';
 import { getFormat } from './formats';
 import { getVoice } from './voices';
 import { logger } from '@/lib/logger';

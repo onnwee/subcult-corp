@@ -15,15 +15,6 @@ import type { AgentSession } from './types';
 
 const log = logger.child({ module: 'agent-session' });
 
-/** Session models — higher quality than dialogue, cheaper than premium */
-const SESSION_MODELS = [
-    'deepseek/deepseek-v3.2',
-    'google/gemini-2.5-flash',
-    'anthropic/claude-haiku-4.5',
-    'openai/gpt-4.1-mini',
-    'qwen/qwen3-235b-a22b',
-];
-
 /**
  * Execute an agent session: load voice, tools, and run the LLM+tools loop.
  * Updates the session row in-place as it progresses.
