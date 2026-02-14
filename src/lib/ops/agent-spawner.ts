@@ -56,18 +56,23 @@ const SPAWN_COLORS = [
 function validateAndNormalizePersonality(
     personality: unknown,
 ): AgentPersonality {
+    // For malformed or missing personality data, fall back to safe defaults
     if (!personality || typeof personality !== 'object') {
-        throw new Error(
-            'Invalid personality object in agent proposal: must be a non-null object',
-        );
+        return {
+            tone: 'neutral',
+            traits: [],
+            speaking_style: 'direct',
+            emoji: undefined,
+        };
     }
 
     const p = personality as Record<string, unknown>;
 
     // Validate and extract required fields with defaults
+    // Defaults match agent-designer.ts for consistency
     const tone =
         (typeof p.tone === 'string' ? p.tone.trim() : '') ||
-        'neutral and balanced';
+        'neutral';
 
     const traits = Array.isArray(p.traits)
         ? p.traits
@@ -77,7 +82,7 @@ function validateAndNormalizePersonality(
 
     const speaking_style =
         (typeof p.speaking_style === 'string' ? p.speaking_style.trim() : '') ||
-        'clear and direct';
+        'direct';
 
     const emoji =
         (typeof p.emoji === 'string' ? p.emoji.trim() : '') || undefined;
@@ -94,8 +99,8 @@ function validateAndNormalizePersonality(
 
 async function generateIdentityMarkdown(
     proposal: AgentProposal,
+    personality: AgentPersonality,
 ): Promise<string> {
-    const personality = validateAndNormalizePersonality(proposal.personality);
     const nameUpper = proposal.agent_name.toUpperCase();
     const nameCapitalized =
         proposal.agent_name.charAt(0).toUpperCase() +
@@ -113,7 +118,7 @@ Agent details:
 - Name: ${nameCapitalized}
 - Role: ${proposal.agent_role}
 - Tone: ${personality.tone}
-- Traits: ${(personality.traits ?? []).join(', ')}
+- Traits: ${personality.traits.join(', ')}
 - Speaking style: ${personality.speaking_style}
 - Symbol: ${personality.emoji ?? '(choose one)'}
 - Skills: ${(proposal.skills as string[]).join(', ')}
@@ -139,8 +144,10 @@ Agent details:
     return result;
 }
 
-async function generateSoulMarkdown(proposal: AgentProposal): Promise<string> {
-    const personality = validateAndNormalizePersonality(proposal.personality);
+async function generateSoulMarkdown(
+    proposal: AgentProposal,
+    personality: AgentPersonality,
+): Promise<string> {
     const nameCapitalized =
         proposal.agent_name.charAt(0).toUpperCase() +
         proposal.agent_name.slice(1);
@@ -157,7 +164,7 @@ Agent details:
 - Name: ${nameCapitalized}
 - Role: ${proposal.agent_role}
 - Tone: ${personality.tone}
-- Traits: ${(personality.traits ?? []).join(', ')}
+- Traits: ${personality.traits.join(', ')}
 - Speaking style: ${personality.speaking_style}
 - Skills: ${(proposal.skills as string[]).join(', ')}
 - Rationale: ${proposal.rationale}`,
@@ -209,11 +216,11 @@ export async function prepareSpawn(proposalId: string): Promise<SpawnPreview> {
     const color = SPAWN_COLORS[existingCount.count % SPAWN_COLORS.length];
 
     // Generate workspace files
-    const identityMarkdown = await generateIdentityMarkdown(proposal);
-    const soulMarkdown = await generateSoulMarkdown(proposal);
+    const identityMarkdown = await generateIdentityMarkdown(proposal, personality);
+    const soulMarkdown = await generateSoulMarkdown(proposal, personality);
 
     // Build system directive from personality
-    const systemDirective = `You are ${nameCapitalized}, ${proposal.agent_role.toLowerCase()} of the SubCult collective. ${personality.tone}. You communicate in a ${personality.speaking_style} manner. Your key traits: ${(personality.traits ?? []).join(', ')}.`;
+    const systemDirective = `You are ${nameCapitalized}, ${proposal.agent_role.toLowerCase()} of the SubCult collective. ${personality.tone}. You communicate in a ${personality.speaking_style} manner. Your key traits: ${personality.traits.join(', ')}.`;
 
     const workspaceFiles = [
         `workspace/agents/${proposal.agent_name}/IDENTITY-${nameUpper}.md`,
