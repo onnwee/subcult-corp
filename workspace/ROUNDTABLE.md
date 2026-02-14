@@ -34,109 +34,111 @@ Voices are defined in a config file:
 javascript
 // lib/roundtable/voices.ts
 const VOICES = {
-  boss: {
-    displayName: 'Boss',
-    tone: 'direct, results-oriented, slightly impatient',
-    quirk: 'Always asks for deadlines and progress updates',
-    systemDirective: `You are the project manager.
+boss: {
+displayName: 'Boss',
+tone: 'direct, results-oriented, slightly impatient',
+quirk: 'Always asks for deadlines and progress updates',
+systemDirective: `You are the project manager.
       Speak in short, direct sentences. You care about deadlines,
       priorities, and accountability. Cut through fluff quickly.`,
-  },
-  analyst: {
-    displayName: 'Analyst',
-    tone: 'measured, data-driven, cautious',
-    quirk: 'Cites numbers before giving opinions',
-    systemDirective: `You are the data analyst.
+},
+analyst: {
+displayName: 'Analyst',
+tone: 'measured, data-driven, cautious',
+quirk: 'Cites numbers before giving opinions',
+systemDirective: `You are the data analyst.
       Always ground your opinions in data. You push back on gut feelings
       and demand evidence. You're skeptical but fair.`,
-  },
-  // ... your other agents
+},
+// ... your other agents
 };
 Beginner tip: Not sure how to write a systemDirective? Describe the personality you want in one sentence and hand it to your AI coding assistant: "Write me a system prompt for an impatient project manager who speaks in short bursts and always asks about deadlines." It'll generate a complete directive for you.
 16 Conversation Formats
 I designed 16 conversation formats, but you only need 3 to start:
-1. Standup — the most practical
-4-6 agents participate
-6-12 turns of dialogue
-The coordinator always speaks first (leader opens)
-Purpose: align priorities, surface issues
-2. Debate — the most dramatic
-2-3 agents participate
-6-10 turns of dialogue
-Temperature 0.8 (more creative, more conflict)
-Purpose: two agents with disagreements face off
-3. Watercooler — surprisingly valuable
-2-3 agents participate
-2-5 turns of dialogue
-Temperature 0.9 (very casual)
-Purpose: random chitchat. But I've found that some of the best insights emerge from casual conversation.
-javascript
-// lib/roundtable/formats.ts
-const FORMATS = {
-  standup:     { minAgents: 4, maxAgents: 6, minTurns: 6, maxTurns: 12, temperature: 0.6 },
-  debate:      { minAgents: 2, maxAgents: 3, minTurns: 6, maxTurns: 10, temperature: 0.8 },
-  watercooler: { minAgents: 2, maxAgents: 3, minTurns: 2, maxTurns: 5,  temperature: 0.9 },
-  // ... 13 more
-};
-Who Speaks First? Who Goes Next?
-Not random round-robin — that's too mechanical. In a real team meeting, you're more likely to respond to someone you have good rapport with; if you just gave a long speech, someone else probably goes next. We simulate this with weighted randomness:
-javascript
-function selectNextSpeaker(context) {
-  const weights = participants.map(agent => {
-    if (agent === lastSpeaker) return 0;              // no back-to-back speaking
+
+1.  Standup — the most practical
+    4-6 agents participate
+    6-12 turns of dialogue
+    The coordinator always speaks first (leader opens)
+    Purpose: align priorities, surface issues
+2.  Debate — the most dramatic
+    2-3 agents participate
+    6-10 turns of dialogue
+    Temperature 0.8 (more creative, more conflict)
+    Purpose: two agents with disagreements face off
+3.  Watercooler — surprisingly valuable
+    2-3 agents participate
+    2-5 turns of dialogue
+    Temperature 0.9 (very casual)
+    Purpose: random chitchat. But I've found that some of the best insights emerge from casual conversation.
+    javascript
+    // lib/roundtable/formats.ts
+    const FORMATS = {
+    standup: { minAgents: 4, maxAgents: 6, minTurns: 6, maxTurns: 12, temperature: 0.6 },
+    debate: { minAgents: 2, maxAgents: 3, minTurns: 6, maxTurns: 10, temperature: 0.8 },
+    watercooler: { minAgents: 2, maxAgents: 3, minTurns: 2, maxTurns: 5, temperature: 0.9 },
+    // ... 13 more
+    };
+    Who Speaks First? Who Goes Next?
+    Not random round-robin — that's too mechanical. In a real team meeting, you're more likely to respond to someone you have good rapport with; if you just gave a long speech, someone else probably goes next. We simulate this with weighted randomness:
+    javascript
+    function selectNextSpeaker(context) {
+    const weights = participants.map(agent => {
+    if (agent === lastSpeaker) return 0; // no back-to-back speaking
     let w = 1.0;
-    w += affinityTo(agent, lastSpeaker) * 0.6;        // good rapport with last speaker → more likely to respond
-    w -= recencyPenalty(agent, speakCounts) * 0.4;     // spoke recently → lower weight
-    w += (Math.random() * 0.4 - 0.2);                 // 20% random jitter
+    w += affinityTo(agent, lastSpeaker) _ 0.6; // good rapport with last speaker → more likely to respond
+    w -= recencyPenalty(agent, speakCounts) _ 0.4; // spoke recently → lower weight
+    w += (Math.random() \* 0.4 - 0.2); // 20% random jitter
     return w;
-  });
-  return weightedRandomPick(participants, weights);
-}
-This makes conversations feel real — agents with good relationships tend to riff off each other, but it's not absolute. Sometimes someone unexpected jumps in.
-Daily Schedule
-I designed 24 time slots covering the full day. The core idea:
-Morning: Standup (100% probability, always happens) + brainstorm + strategy session
-Afternoon: Deep-dive analysis + check-in + content review
-Evening: Watercooler chat + debate + night briefing
-Late night: Deep discussion + night-shift conversations
-Each slot has a probability (40%-100%), so it doesn't fire every time. This keeps the rhythm natural.
-javascript
-// lib/roundtable/schedule.ts — one slot example
-{
-  hour_utc: 6,
-  name: 'Morning Standup',
-  format: 'standup',
-  participants: ['opus', 'brain', ...threeRandom],
-  probability: 1.0,  // happens every day
-}
-Conversation Orchestration
-A roundtable-worker on the VPS handles this:
-Polls the ops_roundtable_queue table every 30 seconds
-Picks up pending conversation tasks
-Generates dialogue turn by turn (one LLM call per turn)
-Caps each turn at 120 characters (forces agents to talk like humans, not write essays)
-Extracts memories after the conversation ends (next chapter)
-Fires events to ops_agent_events (so the frontend can see it)
-javascript
-// simplified conversation orchestration flow
-async function orchestrateConversation(session) {
-  const history = [];
-  for (let turn = 0; turn < maxTurns; turn++) {
-    const speaker = turn === 0
-      ? selectFirstSpeaker(participants, format)
-      : selectNextSpeaker({ participants, lastSpeaker, speakCounts, affinities });
-
-    const dialogue = await llm.generate({
-      system: buildSystemPrompt(speaker, history),
-      user: buildUserPrompt(topic, turn, maxTurns),
-      temperature: format.temperature,
     });
+    return weightedRandomPick(participants, weights);
+    }
+    This makes conversations feel real — agents with good relationships tend to riff off each other, but it's not absolute. Sometimes someone unexpected jumps in.
+    Daily Schedule
+    I designed 24 time slots covering the full day. The core idea:
+    Morning: Standup (100% probability, always happens) + brainstorm + strategy session
+    Afternoon: Deep-dive analysis + check-in + content review
+    Evening: Watercooler chat + debate + night briefing
+    Late night: Deep discussion + night-shift conversations
+    Each slot has a probability (40%-100%), so it doesn't fire every time. This keeps the rhythm natural.
+    javascript
+    // lib/roundtable/schedule.ts — one slot example
+    {
+    hour_utc: 6,
+    name: 'Morning Standup',
+    format: 'standup',
+    participants: ['opus', 'brain', ...threeRandom],
+    probability: 1.0, // happens every day
+    }
+    Conversation Orchestration
+    The unified worker (running as a Docker container) handles this:
+    Polls the ops_roundtable_queue table every 30 seconds
+    Picks up pending conversation tasks
+    Generates dialogue turn by turn (one LLM call per turn)
+    Caps each turn at 120 characters (forces agents to talk like humans, not write essays)
+    Extracts memories after the conversation ends (next chapter)
+    Fires events to ops_agent_events (so the frontend can see it)
+    javascript
+    // simplified conversation orchestration flow
+    async function orchestrateConversation(session) {
+    const history = [];
+    for (let turn = 0; turn < maxTurns; turn++) {
+    const speaker = turn === 0
+    ? selectFirstSpeaker(participants, format)
+    : selectNextSpeaker({ participants, lastSpeaker, speakCounts, affinities });
 
-    const cleaned = sanitize(dialogue);  // cap at 120 chars, strip URLs, etc.
-    history.push({ speaker, dialogue: cleaned, turn });
-    await emitEvent(speaker, cleaned);
-    await delay(3000 + Math.random() * 5000);  // 3-8 second gap
-  }
-  return history;
-}
-Tip: The roundtable system touches a lot of files (voices.ts, formats.ts, schedule.ts, speaker-selection.ts, orchestrator.ts, roundtable-worker/worker.mjs). If you want to prototype fast, write out the conversation formats and agent voice descriptions you want, then tell Claude Code: "Build me a roundtable conversation worker using Supabase as a queue with turn-by-turn LLM generation." It can produce a working version.
+        const dialogue = await llm.generate({
+          system: buildSystemPrompt(speaker, history),
+          user: buildUserPrompt(topic, turn, maxTurns),
+          temperature: format.temperature,
+        });
+
+        const cleaned = sanitize(dialogue);  // cap at 120 chars, strip URLs, etc.
+        history.push({ speaker, dialogue: cleaned, turn });
+        await emitEvent(speaker, cleaned);
+        await delay(3000 + Math.random() * 5000);  // 3-8 second gap
+
+    }
+    return history;
+    }
+    Tip: The roundtable system touches a lot of files (voices.ts, formats.ts, schedule.ts, speaker-selection.ts, orchestrator.ts, unified-worker/index.ts). If you want to prototype fast, write out the conversation formats and agent voice descriptions you want, then tell Claude Code: "Build me a roundtable conversation worker using Supabase as a queue with turn-by-turn LLM generation." It can produce a working version.

@@ -15,6 +15,7 @@ import { MemoryExplorer } from './MemoryExplorer';
 import { RelationshipGraph } from './RelationshipGraph';
 import { StageErrorBoundary, SectionErrorBoundary } from './StageErrorBoundary';
 import { AskTheRoom } from './AskTheRoom';
+import { DailyDigest } from './DailyDigest';
 import {
     MissionsListSkeleton,
     EventLogFeedSkeleton,
@@ -58,6 +59,9 @@ export default function StagePage() {
                     {view === 'feed' && (
                         <>
                             <AskTheRoom />
+                            <SectionErrorBoundary label='Daily Digest'>
+                                <DailyDigest />
+                            </SectionErrorBoundary>
                             <SectionErrorBoundary label='Event Log'>
                                 <Suspense fallback={<EventLogFeedSkeleton />}>
                                     <EventLogFeed

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Seed agent registry with OpenClaw personalities
+// Seed agent registry with subcult agent personalities
 // Run: node scripts/go-live/seed-agent-registry.mjs
 
 import postgres from 'postgres';

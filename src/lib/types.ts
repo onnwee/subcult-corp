@@ -265,7 +265,14 @@ export interface RoundtableVoice {
     systemDirective: string;
 }
 
-export type ArtifactType = 'briefing' | 'report' | 'review' | 'digest' | 'plan' | 'code' | 'none';
+export type ArtifactType =
+    | 'briefing'
+    | 'report'
+    | 'review'
+    | 'digest'
+    | 'plan'
+    | 'code'
+    | 'none';
 
 export interface FormatArtifactConfig {
     type: ArtifactType;
@@ -379,47 +386,6 @@ export interface ToolCallRecord {
     arguments: Record<string, unknown>;
     result?: unknown;
 }
-
-// ─── Legacy OpenClaw / Skills Types ───
-// These are shims to satisfy existing imports from src/lib/skills/*.
-// New code should prefer the native tool types in src/lib/tools/.
-
-export interface SkillDefinition {
-    /** Unique name of the skill */
-    name: string;
-    /** Human-readable description of what the skill does */
-    description?: string;
-    /** JSON-serializable parameters schema or metadata */
-    parameters?: Record<string, unknown>;
-    /**
-     * Optional handler used by the legacy skills system to execute the skill.
-     * The exact signature is intentionally permissive for compatibility.
-     */
-    handler?: (args: unknown, context?: unknown) => unknown | Promise<unknown>;
-}
-
-/** Mapping of skill names to their definitions for a given agent */
-export type AgentSkillSet = Record<string, SkillDefinition>;
-
-/** Top-level configuration object for the legacy OpenClaw system */
-export interface OpenClawConfig {
-    /** Optional registry of skills available to agents */
-    skills?: AgentSkillSet;
-    /** Allow additional configuration properties used by legacy code */
-    [key: string]: unknown;
-}
-
-/** Result object returned from executing a legacy skill */
-export interface SkillExecutionResult {
-    /** Whether the skill executed successfully */
-    success: boolean;
-    /** Primary output payload from the skill, if any */
-    output?: unknown;
-    /** Error information if the skill failed */
-    error?: unknown;
-}
-
-// OpenClaw types removed — see src/lib/tools/ for native tool types
 
 // ─── Memory Types ───
 

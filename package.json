@@ -21,15 +21,17 @@
         "react-dom": "19.2.3",
         "react-error-boundary": "^6.1.0",
         "three": "^0.182.0",
+        "ws": "^8.19.0",
         "zod": "^4.3.6"
     },
     "devDependencies": {
-        "esbuild": "^0.25.0",
         "@tailwindcss/postcss": "^4",
         "@types/node": "^20",
         "@types/react": "^19",
         "@types/react-dom": "^19",
         "@types/three": "^0.182.0",
+        "@types/ws": "^8.18.1",
+        "esbuild": "^0.25.0",
         "eslint": "^9",
         "eslint-config-next": "16.1.6",
         "tailwindcss": "^4",

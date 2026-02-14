@@ -98,3 +98,31 @@ body {
 .glow-amber {
     box-shadow: 0 0 6px rgba(249, 226, 175, 0.4);
 }
+
+/* ─── Sanctum animations ─── */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+.animate-fadeIn {
+    animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes blink {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0;
+    }
+}
+.animate-blink {
+    animation: blink 0.8s step-end infinite;
+}

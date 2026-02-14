@@ -14,6 +14,7 @@ import { checkAndQueueInitiatives } from '@/lib/ops/initiative';
 import { checkArtifactFreshness } from '@/lib/ops/artifact-health';
 import { checkTemplateHealth } from '@/lib/ops/template-health';
 import { evaluateCronSchedules } from '@/lib/ops/cron-scheduler';
+import { generateDailyDigest } from '@/lib/ops/digest';
 import { logger } from '@/lib/logger';
 import { withRequestContext } from '@/middleware';
 
@@ -135,6 +136,25 @@ export async function GET(req: NextRequest) {
         } catch (err) {
             results.templateHealth = { error: (err as Error).message };
             log.error('Template health check failed', { error: err });
+        }
+
+        // ── Phase 11: Daily digest (once per day, ~11PM CST / 5AM UTC) ──
+        try {
+            const nowUtc = new Date();
+            const cstHour = (nowUtc.getUTCHours() - 6 + 24) % 24; // UTC → CST offset
+            if (cstHour >= 22 || cstHour <= 1) {
+                // Window around 11PM CST — generateDailyDigest deduplicates internally
+                const digestId = await generateDailyDigest();
+                results.digest =
+                    digestId ?
+                        { generated: true, id: digestId }
+                    :   { generated: false, reason: 'already_exists' };
+            } else {
+                results.digest = { generated: false, reason: 'outside_window' };
+            }
+        } catch (err) {
+            results.digest = { error: (err as Error).message };
+            log.error('Daily digest generation failed', { error: err });
         }
 
         const durationMs = Date.now() - startTime;
