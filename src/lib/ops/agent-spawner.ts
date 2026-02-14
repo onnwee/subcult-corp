@@ -65,26 +65,21 @@ function validateAndNormalizePersonality(
     const p = personality as Record<string, unknown>;
 
     // Validate and extract required fields with defaults
-    const tone =
-        typeof p.tone === 'string' && p.tone.trim()
-            ? p.tone.trim()
-            : 'neutral and balanced';
+    const toneTrimmed = typeof p.tone === 'string' ? p.tone.trim() : '';
+    const tone = toneTrimmed || 'neutral and balanced';
 
     const traits = Array.isArray(p.traits)
         ? p.traits
-              .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
-              .map((t) => t.trim())
+              .map((t) => (typeof t === 'string' ? t.trim() : ''))
+              .filter((t): t is string => t.length > 0)
         : [];
 
-    const speaking_style =
-        typeof p.speaking_style === 'string' && p.speaking_style.trim()
-            ? p.speaking_style.trim()
-            : 'clear and direct';
+    const speakingStyleTrimmed =
+        typeof p.speaking_style === 'string' ? p.speaking_style.trim() : '';
+    const speaking_style = speakingStyleTrimmed || 'clear and direct';
 
-    const emoji =
-        typeof p.emoji === 'string' && p.emoji.trim()
-            ? p.emoji.trim()
-            : undefined;
+    const emojiTrimmed = typeof p.emoji === 'string' ? p.emoji.trim() : '';
+    const emoji = emojiTrimmed || undefined;
 
     return {
         tone,
