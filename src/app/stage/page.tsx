@@ -19,6 +19,7 @@ import { ContentPipeline } from './ContentPipeline';
 import { GovernancePanel } from './GovernancePanel';
 import { DreamLog } from './DreamLog';
 import { AgentDesigner } from './AgentDesigner';
+import { MemoryArchaeology } from './MemoryArchaeology';
 import { StageErrorBoundary, SectionErrorBoundary } from './StageErrorBoundary';
 import { AskTheRoom } from './AskTheRoom';
 import { DailyDigest } from './DailyDigest';
@@ -243,6 +244,13 @@ export default function StagePage() {
                     {view === 'agent-designer' && (
                         <SectionErrorBoundary label='Agent Designer'>
                             <AgentDesigner />
+                        </SectionErrorBoundary>
+                    )}
+
+                    {/* ── Archaeology View ── */}
+                    {view === 'archaeology' && (
+                        <SectionErrorBoundary label='Memory Archaeology'>
+                            <MemoryArchaeology />
                         </SectionErrorBoundary>
                     )}
 

@@ -581,6 +581,51 @@ async function pollInitiatives(): Promise<boolean> {
             return true;
         }
 
+        // ─── Memory Archaeology (Phase 15) ───
+        if (initiativeAction === 'memory_archaeology') {
+            log.info('Processing memory archaeology dig', {
+                entryId: entry.id,
+                agent: entry.agent_id,
+            });
+            const { performDig } =
+                await import('../../src/lib/ops/memory-archaeology');
+            const maxMemories =
+                ((entry.context as Record<string, unknown>)
+                    ?.max_memories as number) ?? 100;
+
+            // Rotate agents: cycle through agents with memories
+            const agentRows = await sql<{ agent_id: string }[]>`
+                SELECT DISTINCT agent_id FROM ops_agent_memory
+                WHERE superseded_by IS NULL
+                ORDER BY agent_id
+            `;
+            const agentIds = agentRows.map(r => r.agent_id);
+            const weekNumber = Math.floor(Date.now() / (7 * 86_400_000));
+            const targetAgent =
+                agentIds.length > 0 ?
+                    agentIds[weekNumber % agentIds.length]
+                :   entry.agent_id;
+
+            const result = await performDig({
+                agent_id: targetAgent,
+                max_memories: maxMemories,
+            });
+            await sql`
+                UPDATE ops_initiative_queue
+                SET status = 'completed',
+                    processed_at = NOW(),
+                    result = ${sql.json({
+                        type: 'memory_archaeology',
+                        dig_id: result.dig_id,
+                        finding_count: result.findings.length,
+                        memories_analyzed: result.memories_analyzed,
+                        target_agent: targetAgent,
+                    })}::jsonb
+                WHERE id = ${entry.id}
+            `;
+            return true;
+        }
+
         const { llmGenerate } = await import('../../src/lib/llm/client');
         const { getVoice } = await import('../../src/lib/roundtable/voices');
 

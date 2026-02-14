@@ -66,3 +66,19 @@ export {
     createVotingRoundtablePrompt,
 } from './agent-proposal-voting';
 export { prepareSpawn, executeSpawn } from './agent-spawner';
+export {
+    performDig,
+    getDigHistory,
+    getFindings,
+    getLatestFindings,
+    getFindingsForMemory,
+    getLastDigTimestamp,
+} from './memory-archaeology';
+export type {
+    FindingType,
+    ArchaeologyConfig,
+    Finding,
+    DigResult,
+    DigSummary,
+    StoredFinding,
+} from './memory-archaeology';

@@ -140,6 +140,20 @@ const triggers = [
         cooldown_minutes: 30,
         enabled: true,
     },
+
+    // ─── Memory Archaeology (Phase 15) ───
+    {
+        name: 'Memory archaeology dig (Chora)',
+        trigger_event: 'memory_archaeology_due',
+        conditions: { min_days_between_digs: 7 },
+        action_config: {
+            target_agent: 'chora',
+            action: 'memory_archaeology',
+            max_memories: 100,
+        },
+        cooldown_minutes: 10080, // 7 days
+        enabled: true,
+    },
 ];
 
 async function seed() {

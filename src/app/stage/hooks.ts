@@ -1135,6 +1135,114 @@ export function useRebellionState() {
     return { rebels, rebellingAgentIds, loading };
 }
 
+// ─── useArchaeology — fetch memory archaeology digs and findings ───
+
+export interface ArchaeologyDigEntry {
+    dig_id: string;
+    agent_id: string;
+    finding_count: number;
+    finding_types: string[];
+    started_at: string;
+}
+
+export interface ArchaeologyFinding {
+    id: string;
+    dig_id: string;
+    agent_id: string;
+    finding_type: string;
+    title: string;
+    description: string;
+    evidence: Array<{ memory_id: string; excerpt: string; relevance: string }>;
+    confidence: number;
+    time_span: { from: string; to: string } | null;
+    related_agents: string[];
+    metadata: Record<string, unknown>;
+    created_at: string;
+}
+
+export function useArchaeology(options?: { limit?: number }) {
+    const [digs, setDigs] = useState<ArchaeologyDigEntry[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [refreshKey, setRefreshKey] = useState(0);
+    const [triggerLoading, setTriggerLoading] = useState(false);
+
+    const limit = options?.limit ?? 20;
+
+    const fetchDigs = useCallback(async () => {
+        try {
+            const data = await fetchJson<{ digs: ArchaeologyDigEntry[] }>(
+                `/api/ops/archaeology?limit=${limit}`,
+            );
+            setDigs(data.digs);
+            setError(null);
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setLoading(false);
+        }
+    }, [limit]);
+
+    useEffect(() => {
+        setLoading(true);
+        fetchDigs();
+    }, [fetchDigs, refreshKey]);
+
+    // Poll every 60 seconds (digs are infrequent)
+    useInterval(() => {
+        fetchDigs();
+    }, 60000);
+
+    const fetchFindings = useCallback(
+        async (digId: string): Promise<ArchaeologyFinding[]> => {
+            const data = await fetchJson<{ findings: ArchaeologyFinding[] }>(
+                `/api/ops/archaeology?dig_id=${digId}`,
+            );
+            return data.findings;
+        },
+        [],
+    );
+
+    const fetchFindingsForMemory = useCallback(
+        async (memoryId: string): Promise<ArchaeologyFinding[]> => {
+            const data = await fetchJson<{ findings: ArchaeologyFinding[] }>(
+                `/api/ops/archaeology?memory_id=${memoryId}`,
+            );
+            return data.findings;
+        },
+        [],
+    );
+
+    const triggerDig = useCallback(async (agentId?: string) => {
+        setTriggerLoading(true);
+        try {
+            await fetch('/api/ops/archaeology', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ agent_id: agentId, max_memories: 100 }),
+            });
+            setRefreshKey(k => k + 1);
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setTriggerLoading(false);
+        }
+    }, []);
+
+    const refetch = useCallback(() => setRefreshKey(k => k + 1), []);
+
+    return {
+        digs,
+        loading,
+        error,
+        triggerLoading,
+        fetchFindings,
+        fetchFindingsForMemory,
+        triggerDig,
+        refetch,
+    };
+}
+
 // ─── useInterval — setinterval with saved callback ───
 
 export function useInterval(callback: () => void, delay: number | null) {

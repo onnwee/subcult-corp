@@ -110,7 +110,8 @@ export type StepKind =
     | 'tag_memory'
     | 'escalate_risk'
     | 'convene_roundtable'
-    | 'propose_workflow';
+    | 'propose_workflow'
+    | 'memory_archaeology';
 
 export type StepStatus =
     | 'queued'

@@ -4,9 +4,16 @@
 'use no memo';
 
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { useMemories, type MemoryFilters } from './hooks';
+import {
+    useMemories,
+    useArchaeology,
+    type MemoryFilters,
+    type ArchaeologyFinding,
+} from './hooks';
 import { AGENTS } from '@/lib/agents';
 import type { AgentId, MemoryType, MemoryEntry } from '@/lib/types';
+
+type ExplorerTab = 'memories' | 'archaeology';
 
 // ─── Constants ───
 
@@ -53,6 +60,37 @@ const ALL_TYPES: MemoryType[] = [
     'preference',
     'lesson',
 ];
+
+const FINDING_TYPE_BADGE: Record<
+    string,
+    { icon: string; label: string; color: string }
+> = {
+    pattern: { icon: '🔄', label: 'Pattern', color: 'text-accent-green' },
+    contradiction: {
+        icon: '⚡',
+        label: 'Contradiction',
+        color: 'text-accent-red',
+    },
+    emergence: { icon: '🌱', label: 'Emergence', color: 'text-purple-400' },
+    echo: { icon: '🔊', label: 'Echo', color: 'text-accent-yellow' },
+    drift: { icon: '🌊', label: 'Drift', color: 'text-cyan-400' },
+};
+
+/** Build a map of memory_id → findings from evidence arrays */
+function buildFindingIndex(
+    findings: ArchaeologyFinding[],
+): Map<string, ArchaeologyFinding[]> {
+    const index = new Map<string, ArchaeologyFinding[]>();
+    for (const f of findings) {
+        for (const ev of f.evidence ?? []) {
+            if (!ev.memory_id) continue;
+            const list = index.get(ev.memory_id) ?? [];
+            list.push(f);
+            index.set(ev.memory_id, list);
+        }
+    }
+    return index;
+}
 
 // ─── Helpers ───
 
@@ -125,9 +163,9 @@ function AgentFilterTabs({
             <button
                 onClick={() => onChange(null)}
                 className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                    selected === null
-                        ? 'bg-zinc-700 text-zinc-100'
-                        : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
+                    selected === null ?
+                        'bg-zinc-700 text-zinc-100'
+                    :   'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
                 }`}
             >
                 All
@@ -137,9 +175,9 @@ function AgentFilterTabs({
                     key={agent.id}
                     onClick={() => onChange(agent.id)}
                     className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                        selected === agent.id
-                            ? `bg-zinc-700 ${agent.tailwindTextColor}`
-                            : `${agent.tailwindTextColor}/50 hover:${agent.tailwindTextColor} hover:bg-zinc-800`
+                        selected === agent.id ?
+                            `bg-zinc-700 ${agent.tailwindTextColor}`
+                        :   `${agent.tailwindTextColor}/50 hover:${agent.tailwindTextColor} hover:bg-zinc-800`
                     }`}
                 >
                     {agent.displayName}
@@ -178,9 +216,9 @@ function TypeFilterChips({
                         key={type}
                         onClick={() => toggleType(type)}
                         className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium border transition-colors ${
-                            active
-                                ? cfg.bgColor + ' ' + cfg.color
-                                : 'border-zinc-700/50 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600'
+                            active ?
+                                cfg.bgColor + ' ' + cfg.color
+                            :   'border-zinc-700/50 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600'
                         }`}
                     >
                         {cfg.icon} {cfg.label}
@@ -259,14 +297,301 @@ function SearchInput({
 
 // ─── Memory Card ───
 
+// ─── Finding Badges (shown on memory cards) ───
+
+function FindingBadges({
+    findings,
+    onNavigate,
+}: {
+    findings: ArchaeologyFinding[];
+    onNavigate?: (finding: ArchaeologyFinding) => void;
+}) {
+    // Group by type and count
+    const grouped = useMemo(() => {
+        const counts: Record<
+            string,
+            { count: number; items: ArchaeologyFinding[] }
+        > = {};
+        for (const f of findings) {
+            if (!counts[f.finding_type])
+                counts[f.finding_type] = { count: 0, items: [] };
+            counts[f.finding_type].count++;
+            counts[f.finding_type].items.push(f);
+        }
+        return counts;
+    }, [findings]);
+
+    if (findings.length === 0) return null;
+
+    return (
+        <div className='flex gap-1 flex-wrap mt-1.5'>
+            <span className='text-[9px] text-zinc-500 mr-0.5 self-center'>
+                🏛️
+            </span>
+            {Object.entries(grouped).map(([type, { count, items }]) => {
+                const cfg = FINDING_TYPE_BADGE[type] ?? {
+                    icon: '📋',
+                    label: type,
+                    color: 'text-zinc-400',
+                };
+                return (
+                    <button
+                        key={type}
+                        onClick={e => {
+                            e.stopPropagation();
+                            if (onNavigate && items[0]) onNavigate(items[0]);
+                        }}
+                        className={`rounded-full border border-zinc-700/50 px-1.5 py-0.5 text-[10px] font-medium ${cfg.color} hover:bg-zinc-700/50 transition-colors`}
+                        title={`${count} ${cfg.label} finding${count > 1 ? 's' : ''}`}
+                    >
+                        {cfg.icon} {count}
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
+
+// ─── Archaeology Insights Panel ───
+
+function ArchaeologyInsightsPanel() {
+    const { digs, loading, error, triggerLoading, fetchFindings, triggerDig } =
+        useArchaeology({ limit: 10 });
+    const [expandedDig, setExpandedDig] = useState<string | null>(null);
+    const [digFindings, setDigFindings] = useState<
+        Record<string, ArchaeologyFinding[]>
+    >({});
+
+    const handleExpandDig = useCallback(
+        async (digId: string) => {
+            if (expandedDig === digId) {
+                setExpandedDig(null);
+                return;
+            }
+            setExpandedDig(digId);
+            if (!digFindings[digId]) {
+                const findings = await fetchFindings(digId);
+                setDigFindings(prev => ({ ...prev, [digId]: findings }));
+            }
+        },
+        [expandedDig, digFindings, fetchFindings],
+    );
+
+    if (loading) {
+        return (
+            <div className='p-4 space-y-3'>
+                {Array.from({ length: 4 }).map((_, i) => (
+                    <div
+                        key={i}
+                        className='h-16 rounded-lg bg-zinc-800/40 animate-pulse'
+                    />
+                ))}
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className='p-4'>
+                <p className='text-sm text-accent-red'>
+                    Failed to load archaeology data: {error}
+                </p>
+            </div>
+        );
+    }
+
+    if (digs.length === 0) {
+        return (
+            <div className='p-8 text-center'>
+                <div className='text-3xl mb-2'>🏛️</div>
+                <p className='text-sm text-zinc-500 mb-3'>
+                    No archaeology digs have been performed yet.
+                </p>
+                <button
+                    onClick={() => triggerDig()}
+                    disabled={triggerLoading}
+                    className='rounded-md bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors disabled:opacity-50'
+                >
+                    {triggerLoading ? 'Starting dig...' : 'Run First Dig'}
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <div className='h-128 overflow-y-auto scrollbar-thin scrollbar-track-zinc-900 scrollbar-thumb-zinc-700'>
+            <div className='px-3 py-2 space-y-2'>
+                {/* Trigger button */}
+                <div className='flex justify-end mb-1'>
+                    <button
+                        onClick={() => triggerDig()}
+                        disabled={triggerLoading}
+                        className='rounded-md bg-zinc-800 border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors disabled:opacity-50'
+                    >
+                        {triggerLoading ? '⏳ Running...' : '🏛️ New Dig'}
+                    </button>
+                </div>
+
+                {digs.map(dig => {
+                    const isExpanded = expandedDig === dig.dig_id;
+                    const findings = digFindings[dig.dig_id] ?? [];
+                    const agent = AGENTS[dig.agent_id as AgentId];
+
+                    return (
+                        <div
+                            key={dig.dig_id}
+                            className={`rounded-lg border transition-all ${
+                                isExpanded ?
+                                    'border-zinc-600 bg-zinc-800/60'
+                                :   'border-zinc-700/50 bg-zinc-800/30 hover:bg-zinc-800/50'
+                            }`}
+                        >
+                            <div
+                                className='flex items-center gap-3 p-3 cursor-pointer'
+                                onClick={() => handleExpandDig(dig.dig_id)}
+                            >
+                                <span className='text-sm'>🏛️</span>
+                                <div className='flex-1 min-w-0'>
+                                    <div className='flex items-center gap-2'>
+                                        <span
+                                            className={`text-xs font-medium ${agent?.tailwindTextColor ?? 'text-zinc-400'}`}
+                                        >
+                                            {agent?.displayName ?? dig.agent_id}
+                                        </span>
+                                        <span className='text-[10px] text-zinc-600'>
+                                            {formatRelativeTime(dig.started_at)}
+                                        </span>
+                                    </div>
+                                    <div className='flex gap-1.5 mt-1'>
+                                        {dig.finding_types.map(type => {
+                                            const cfg = FINDING_TYPE_BADGE[
+                                                type
+                                            ] ?? {
+                                                icon: '📋',
+                                                color: 'text-zinc-500',
+                                            };
+                                            return (
+                                                <span
+                                                    key={type}
+                                                    className={`text-[10px] ${cfg.color}`}
+                                                >
+                                                    {cfg.icon}
+                                                </span>
+                                            );
+                                        })}
+                                        <span className='text-[10px] text-zinc-600'>
+                                            {dig.finding_count} finding
+                                            {dig.finding_count !== 1 ? 's' : ''}
+                                        </span>
+                                    </div>
+                                </div>
+                                <svg
+                                    className={`h-3.5 w-3.5 text-zinc-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                                    fill='none'
+                                    viewBox='0 0 24 24'
+                                    stroke='currentColor'
+                                    strokeWidth={2}
+                                >
+                                    <path
+                                        strokeLinecap='round'
+                                        strokeLinejoin='round'
+                                        d='M19 9l-7 7-7-7'
+                                    />
+                                </svg>
+                            </div>
+
+                            {isExpanded && (
+                                <div className='px-3 pb-3 space-y-1.5'>
+                                    {findings.length === 0 ?
+                                        <div className='py-2 text-center'>
+                                            <div className='h-4 w-32 mx-auto rounded bg-zinc-800/50 animate-pulse' />
+                                        </div>
+                                    :   findings.map(f => {
+                                            const cfg = FINDING_TYPE_BADGE[
+                                                f.finding_type
+                                            ] ?? {
+                                                icon: '📋',
+                                                label: f.finding_type,
+                                                color: 'text-zinc-400',
+                                            };
+                                            return (
+                                                <div
+                                                    key={f.id}
+                                                    className='rounded-md bg-zinc-900/80 border border-zinc-700/30 px-3 py-2'
+                                                >
+                                                    <div className='flex items-start gap-2'>
+                                                        <span className='text-sm shrink-0'>
+                                                            {cfg.icon}
+                                                        </span>
+                                                        <div className='flex-1 min-w-0'>
+                                                            <div className='flex items-center gap-2 mb-0.5'>
+                                                                <span
+                                                                    className={`text-[10px] font-medium ${cfg.color}`}
+                                                                >
+                                                                    {cfg.label}
+                                                                </span>
+                                                                <span className='text-[10px] text-zinc-600 font-mono'>
+                                                                    {Math.round(
+                                                                        f.confidence *
+                                                                            100,
+                                                                    )}
+                                                                    %
+                                                                </span>
+                                                            </div>
+                                                            <p className='text-xs text-zinc-200 font-medium leading-snug'>
+                                                                {f.title}
+                                                            </p>
+                                                            <p className='text-[11px] text-zinc-400 leading-relaxed mt-0.5'>
+                                                                {f.description}
+                                                            </p>
+                                                            {f.evidence.length >
+                                                                0 && (
+                                                                <div className='mt-1.5 text-[10px] text-zinc-500'>
+                                                                    Based on{' '}
+                                                                    {
+                                                                        f
+                                                                            .evidence
+                                                                            .length
+                                                                    }{' '}
+                                                                    memor
+                                                                    {(
+                                                                        f
+                                                                            .evidence
+                                                                            .length ===
+                                                                        1
+                                                                    ) ?
+                                                                        'y'
+                                                                    :   'ies'}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
+                                    }
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
+// ─── Memory Card ───
+
 function MemoryCard({
     memory,
     isExpanded,
     onToggle,
+    findings,
 }: {
     memory: MemoryEntry;
     isExpanded: boolean;
     onToggle: () => void;
+    findings?: ArchaeologyFinding[];
 }) {
     const agentId = memory.agent_id as AgentId;
     const agent = AGENTS[agentId];
@@ -276,9 +601,9 @@ function MemoryCard({
     return (
         <div
             className={`rounded-lg border transition-all ${
-                isExpanded
-                    ? 'border-zinc-600 bg-zinc-800/60'
-                    : 'border-zinc-700/50 bg-zinc-800/30 hover:bg-zinc-800/50'
+                isExpanded ?
+                    'border-zinc-600 bg-zinc-800/60'
+                :   'border-zinc-700/50 bg-zinc-800/30 hover:bg-zinc-800/50'
             }`}
         >
             {/* Header row */}
@@ -344,6 +669,11 @@ function MemoryCard({
                             ))}
                         </div>
                     )}
+
+                    {/* Archaeology finding badges */}
+                    {findings && findings.length > 0 && (
+                        <FindingBadges findings={findings} />
+                    )}
                 </div>
 
                 {/* Expand chevron */}
@@ -408,10 +738,14 @@ function MemoryCard({
                                     </span>
                                     <button
                                         onClick={() => {
-                                            navigator.clipboard.writeText(memory.source_trace_id!).catch(() => {
-                                                // Fallback: select the text for manual copy if clipboard API fails
-                                                // In non-secure contexts, just ignore the error silently
-                                            });
+                                            navigator.clipboard
+                                                .writeText(
+                                                    memory.source_trace_id!,
+                                                )
+                                                .catch(() => {
+                                                    // Fallback: select the text for manual copy if clipboard API fails
+                                                    // In non-secure contexts, just ignore the error silently
+                                                });
                                         }}
                                         className='text-accent-blue hover:text-accent-blue/80 font-mono text-[10px] break-all text-left underline decoration-dotted'
                                         title='Click to copy trace ID'
@@ -534,7 +868,8 @@ function MemoryStats({ memories }: { memories: MemoryEntry[] }) {
 // ─── Main Component ───
 
 export function MemoryExplorer() {
-    // Filter state
+    // Tab + filter state
+    const [activeTab, setActiveTab] = useState<ExplorerTab>('memories');
     const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
     const [selectedTypes, setSelectedTypes] = useState<Set<MemoryType>>(
         new Set(),
@@ -547,16 +882,13 @@ export function MemoryExplorer() {
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const handleSearchChange = useCallback(
-        (value: string) => {
-            setSearchQuery(value);
-            if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-            searchTimerRef.current = setTimeout(() => {
-                setDebouncedSearch(value);
-            }, 300);
-        },
-        [],
-    );
+    const handleSearchChange = useCallback((value: string) => {
+        setSearchQuery(value);
+        if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+        searchTimerRef.current = setTimeout(() => {
+            setDebouncedSearch(value);
+        }, 300);
+    }, []);
 
     // Cleanup timer on unmount
     useEffect(() => {
@@ -570,9 +902,7 @@ export function MemoryExplorer() {
         () => ({
             agent_id: selectedAgent ?? undefined,
             type:
-                selectedTypes.size > 0
-                    ? Array.from(selectedTypes)
-                    : undefined,
+                selectedTypes.size > 0 ? Array.from(selectedTypes) : undefined,
             min_confidence: minConfidence > 0 ? minConfidence : undefined,
             search: debouncedSearch || undefined,
             limit: 200,
@@ -581,6 +911,40 @@ export function MemoryExplorer() {
     );
 
     const { memories, total, loading, error } = useMemories(filters);
+
+    // Archaeology: fetch latest findings to build badge index
+    const { digs: latestDigs } = useArchaeology({ limit: 5 });
+    const [allFindings, setAllFindings] = useState<ArchaeologyFinding[]>([]);
+
+    // Fetch findings from recent digs to build the index
+    useEffect(() => {
+        let cancelled = false;
+        async function loadFindings() {
+            if (latestDigs.length === 0) return;
+            const results: ArchaeologyFinding[] = [];
+            for (const dig of latestDigs.slice(0, 3)) {
+                try {
+                    const data = await fetch(
+                        `/api/ops/archaeology?dig_id=${dig.dig_id}`,
+                    ).then(r => r.json());
+                    if (!cancelled && data.findings)
+                        results.push(...data.findings);
+                } catch {
+                    /* ignore individual fetch errors */
+                }
+            }
+            if (!cancelled) setAllFindings(results);
+        }
+        loadFindings();
+        return () => {
+            cancelled = true;
+        };
+    }, [latestDigs]);
+
+    const findingIndex = useMemo(
+        () => buildFindingIndex(allFindings),
+        [allFindings],
+    );
 
     const toggleExpanded = useCallback((id: string) => {
         setExpandedIds(prev => {
@@ -637,84 +1001,116 @@ export function MemoryExplorer() {
                                 {total} total
                             </span>
                         </div>
-                    </div>
-
-                    {/* Filters */}
-                    <div className='space-y-2'>
-                        <AgentFilterTabs
-                            selected={selectedAgent}
-                            onChange={setSelectedAgent}
-                        />
-                        <TypeFilterChips
-                            selected={selectedTypes}
-                            onChange={setSelectedTypes}
-                        />
-                        <div className='flex gap-3 items-end'>
-                            <div className='flex-1'>
-                                <SearchInput
-                                    value={searchQuery}
-                                    onChange={handleSearchChange}
-                                />
-                            </div>
-                            <div className='flex-1'>
-                                <ConfidenceSlider
-                                    value={minConfidence}
-                                    onChange={setMinConfidence}
-                                />
-                            </div>
+                        {/* Tab switcher */}
+                        <div className='flex gap-0.5 rounded-md bg-zinc-800/80 p-0.5'>
+                            <button
+                                onClick={() => setActiveTab('memories')}
+                                className={`rounded px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                                    activeTab === 'memories' ?
+                                        'bg-zinc-700 text-zinc-100'
+                                    :   'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                            >
+                                Memories
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('archaeology')}
+                                className={`rounded px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                                    activeTab === 'archaeology' ?
+                                        'bg-zinc-700 text-zinc-100'
+                                    :   'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                            >
+                                🏛️ Archaeology
+                            </button>
                         </div>
                     </div>
+
+                    {/* Filters (only shown on memories tab) */}
+                    {activeTab === 'memories' && (
+                        <div className='space-y-2'>
+                            <AgentFilterTabs
+                                selected={selectedAgent}
+                                onChange={setSelectedAgent}
+                            />
+                            <TypeFilterChips
+                                selected={selectedTypes}
+                                onChange={setSelectedTypes}
+                            />
+                            <div className='flex gap-3 items-end'>
+                                <div className='flex-1'>
+                                    <SearchInput
+                                        value={searchQuery}
+                                        onChange={handleSearchChange}
+                                    />
+                                </div>
+                                <div className='flex-1'>
+                                    <ConfidenceSlider
+                                        value={minConfidence}
+                                        onChange={setMinConfidence}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
-                {/* Memory timeline */}
-                {loading ? (
-                    <div className='p-4 space-y-3'>
-                        {Array.from({ length: 6 }).map((_, i) => (
-                            <div
-                                key={i}
-                                className='h-20 rounded-lg bg-zinc-800/40 animate-pulse'
-                            />
-                        ))}
-                    </div>
-                ) : memories.length === 0 ? (
-                    <div className='p-8 text-center text-sm text-zinc-500'>
-                        No memories match the current filters. Adjust filters or
-                        wait for agents to form new memories.
-                    </div>
-                ) : (
-                    <div className='h-128 overflow-y-auto scrollbar-thin scrollbar-track-zinc-900 scrollbar-thumb-zinc-700'>
-                        <div className='px-3 py-2 space-y-4'>
-                            {groupedMemories.map(group => (
-                                <div key={group.date}>
-                                    {/* Date separator */}
-                                    <div className='flex items-center gap-2 mb-2'>
-                                        <div className='h-px flex-1 bg-zinc-800' />
-                                        <span className='text-[10px] text-zinc-600 font-mono shrink-0'>
-                                            {group.date}
-                                        </span>
-                                        <div className='h-px flex-1 bg-zinc-800' />
-                                    </div>
+                {/* Archaeology tab */}
+                {activeTab === 'archaeology' && <ArchaeologyInsightsPanel />}
 
-                                    {/* Memory cards */}
-                                    <div className='space-y-1.5'>
-                                        {group.memories.map(memory => (
-                                            <MemoryCard
-                                                key={memory.id}
-                                                memory={memory}
-                                                isExpanded={expandedIds.has(
-                                                    memory.id,
-                                                )}
-                                                onToggle={() =>
-                                                    toggleExpanded(memory.id)
-                                                }
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
+                {/* Memory timeline (only on memories tab) */}
+                {activeTab === 'memories' &&
+                    (loading ?
+                        <div className='p-4 space-y-3'>
+                            {Array.from({ length: 6 }).map((_, i) => (
+                                <div
+                                    key={i}
+                                    className='h-20 rounded-lg bg-zinc-800/40 animate-pulse'
+                                />
                             ))}
                         </div>
-                    </div>
-                )}
+                    : memories.length === 0 ?
+                        <div className='p-8 text-center text-sm text-zinc-500'>
+                            No memories match the current filters. Adjust
+                            filters or wait for agents to form new memories.
+                        </div>
+                    :   <div className='h-128 overflow-y-auto scrollbar-thin scrollbar-track-zinc-900 scrollbar-thumb-zinc-700'>
+                            <div className='px-3 py-2 space-y-4'>
+                                {groupedMemories.map(group => (
+                                    <div key={group.date}>
+                                        {/* Date separator */}
+                                        <div className='flex items-center gap-2 mb-2'>
+                                            <div className='h-px flex-1 bg-zinc-800' />
+                                            <span className='text-[10px] text-zinc-600 font-mono shrink-0'>
+                                                {group.date}
+                                            </span>
+                                            <div className='h-px flex-1 bg-zinc-800' />
+                                        </div>
+
+                                        {/* Memory cards */}
+                                        <div className='space-y-1.5'>
+                                            {group.memories.map(memory => (
+                                                <MemoryCard
+                                                    key={memory.id}
+                                                    memory={memory}
+                                                    isExpanded={expandedIds.has(
+                                                        memory.id,
+                                                    )}
+                                                    onToggle={() =>
+                                                        toggleExpanded(
+                                                            memory.id,
+                                                        )
+                                                    }
+                                                    findings={findingIndex.get(
+                                                        memory.id,
+                                                    )}
+                                                />
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>)}
             </div>
         </div>
     );
