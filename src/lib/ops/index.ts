@@ -36,3 +36,11 @@ export {
     deriveVoiceModifiers,
     clearVoiceModifierCache,
 } from './voice-evolution';
+export {
+    checkRebellionState,
+    isAgentRebelling,
+    endRebellion,
+    attemptRebellionResolution,
+    enqueueRebellionCrossExam,
+    getRebellingAgents,
+} from './rebellion';

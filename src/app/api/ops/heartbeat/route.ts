@@ -16,6 +16,11 @@ import { checkTemplateHealth } from '@/lib/ops/template-health';
 import { evaluateCronSchedules } from '@/lib/ops/cron-scheduler';
 import { generateDailyDigest } from '@/lib/ops/digest';
 import { runDreamCycle, hasAgentDreamedToday } from '@/lib/ops/dreams';
+import {
+    getRebellingAgents,
+    attemptRebellionResolution,
+    enqueueRebellionCrossExam,
+} from '@/lib/ops/rebellion';
 import { AGENT_IDS } from '@/lib/agents';
 import { logger } from '@/lib/logger';
 import { withRequestContext } from '@/middleware';
@@ -206,11 +211,57 @@ export async function GET(req: NextRequest) {
                     };
                 }
             } else {
-                results.dreams = { window: false, reason: 'outside_dream_hours' };
+                results.dreams = {
+                    window: false,
+                    reason: 'outside_dream_hours',
+                };
             }
         } catch (err) {
             results.dreams = { error: (err as Error).message };
             log.error('Dream cycle failed', { error: err });
+        }
+
+        // ── Phase 13: Rebellion resolution checks ──
+        try {
+            const rebels = await getRebellingAgents();
+            if (rebels.length > 0) {
+                const rebellionResults: Array<{
+                    agentId: string;
+                    resolved: boolean;
+                    crossExamQueued?: boolean;
+                }> = [];
+
+                for (const rebel of rebels) {
+                    const resolved = await attemptRebellionResolution(
+                        rebel.agentId,
+                    );
+                    if (resolved) {
+                        rebellionResults.push({
+                            agentId: rebel.agentId,
+                            resolved: true,
+                        });
+                    } else {
+                        const sessionId = await enqueueRebellionCrossExam(
+                            rebel.agentId,
+                        );
+                        rebellionResults.push({
+                            agentId: rebel.agentId,
+                            resolved: false,
+                            crossExamQueued: sessionId !== null,
+                        });
+                    }
+                }
+
+                results.rebellions = {
+                    active: rebels.length,
+                    results: rebellionResults,
+                };
+            } else {
+                results.rebellions = { active: 0 };
+            }
+        } catch (err) {
+            results.rebellions = { error: (err as Error).message };
+            log.error('Rebellion resolution check failed', { error: err });
         }
 
         const durationMs = Date.now() - startTime;

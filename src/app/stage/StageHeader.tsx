@@ -1,6 +1,7 @@
 // Stage Header — title bar, stats, and view toggle
 'use client';
 
+import { useState, useCallback } from 'react';
 import {
     useSystemStats,
     type SystemStats,
@@ -10,7 +11,17 @@ import { StatsBarSkeleton } from './StageSkeletons';
 import { AGENTS } from '@/lib/agents';
 import type { AgentId } from '@/lib/types';
 
-export type ViewMode = 'feed' | 'missions' | 'office' | 'logs' | 'costs' | 'memories' | 'relationships' | 'content' | 'governance' | 'dreams';
+export type ViewMode =
+    | 'feed'
+    | 'missions'
+    | 'office'
+    | 'logs'
+    | 'costs'
+    | 'memories'
+    | 'relationships'
+    | 'content'
+    | 'governance'
+    | 'dreams';
 
 function ConnectionIndicator({ status }: { status: ConnectionStatus }) {
     const config: Record<
@@ -84,6 +95,22 @@ export function StageHeader({
     connectionStatus?: ConnectionStatus;
 }) {
     const { stats, loading } = useSystemStats();
+    const [copied, setCopied] = useState(false);
+
+    const handleShareClick = useCallback((e: React.MouseEvent) => {
+        const liveUrl = `${window.location.origin}/live`;
+
+        // Alt-click opens in new tab
+        if (e.altKey) {
+            window.open(liveUrl, '_blank');
+            return;
+        }
+
+        navigator.clipboard.writeText(liveUrl).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        });
+    }, []);
 
     const views: { key: ViewMode; label: string; icon: string }[] = [
         { key: 'feed', label: 'Signal Feed', icon: '📡' },
@@ -115,6 +142,48 @@ export function StageHeader({
                         Multi-agent command center
                     </p>
                 </div>
+
+                {/* Share link button */}
+                <button
+                    onClick={handleShareClick}
+                    className='flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors border border-zinc-700/50'
+                    title='Copy /live link (Alt+click to open)'
+                >
+                    {copied ?
+                        <>
+                            <svg
+                                className='w-3.5 h-3.5 text-accent-green'
+                                fill='none'
+                                viewBox='0 0 24 24'
+                                stroke='currentColor'
+                                strokeWidth={2}
+                            >
+                                <path
+                                    strokeLinecap='round'
+                                    strokeLinejoin='round'
+                                    d='M5 13l4 4L19 7'
+                                />
+                            </svg>
+                            <span className='text-accent-green'>Copied!</span>
+                        </>
+                    :   <>
+                            <svg
+                                className='w-3.5 h-3.5'
+                                fill='none'
+                                viewBox='0 0 24 24'
+                                stroke='currentColor'
+                                strokeWidth={2}
+                            >
+                                <path
+                                    strokeLinecap='round'
+                                    strokeLinejoin='round'
+                                    d='M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1'
+                                />
+                            </svg>
+                            <span className='hidden sm:inline'>Share Live</span>
+                        </>
+                    }
+                </button>
 
                 {/* View toggle */}
                 <div className='flex gap-1 rounded-lg bg-zinc-800/50 p-1 border border-zinc-700/50'>

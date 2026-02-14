@@ -1,7 +1,7 @@
 // Shared hooks for the Stage dashboard
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type {
     AgentEvent,
     AgentRelationship,
@@ -785,8 +785,18 @@ export function useDigest(date?: string) {
 
 // ─── useContent — fetch + poll content drafts ───
 
-export type ContentType = 'essay' | 'thread' | 'statement' | 'poem' | 'manifesto';
-export type ContentStatus = 'draft' | 'review' | 'approved' | 'rejected' | 'published';
+export type ContentType =
+    | 'essay'
+    | 'thread'
+    | 'statement'
+    | 'poem'
+    | 'manifesto';
+export type ContentStatus =
+    | 'draft'
+    | 'review'
+    | 'approved'
+    | 'rejected'
+    | 'published';
 
 export interface ContentDraft {
     id: string;
@@ -858,7 +868,11 @@ export function useContent(filters?: ContentFilters) {
 
 // ─── useGovernance — fetch + poll governance proposals ───
 
-export type GovernanceProposalStatus = 'proposed' | 'voting' | 'accepted' | 'rejected';
+export type GovernanceProposalStatus =
+    | 'proposed'
+    | 'voting'
+    | 'accepted'
+    | 'rejected';
 
 export interface GovernanceVoteSummary {
     approvals: number;
@@ -904,9 +918,9 @@ export function useGovernance(filters?: {
             if (proposer) params.set('proposer', proposer);
             params.set('limit', String(limit));
 
-            const data = await fetchJson<{ proposals: GovernanceProposalEntry[] }>(
-                `/api/ops/governance?${params}`,
-            );
+            const data = await fetchJson<{
+                proposals: GovernanceProposalEntry[];
+            }>(`/api/ops/governance?${params}`);
             setProposals(data.proposals);
             setError(null);
         } catch (err) {
@@ -992,6 +1006,49 @@ export function useDreams(filters?: {
 }
 
 // ─── useInterval — for animations and polling ───
+
+// ─── useRebellionState — fetch active rebellion states ───
+
+export interface RebellionEntry {
+    agentId: string;
+    startedAt: string;
+    eventId: string;
+}
+
+export function useRebellionState() {
+    const [rebels, setRebels] = useState<RebellionEntry[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    const fetchRebellions = useCallback(async () => {
+        try {
+            const data = await fetchJson<{
+                rebels: RebellionEntry[];
+                count: number;
+            }>('/api/ops/rebellion');
+            setRebels(data.rebels);
+        } catch {
+            // Non-fatal — keep previous state
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchRebellions();
+    }, [fetchRebellions]);
+
+    // Poll every 30 seconds for rebellion state changes
+    useInterval(fetchRebellions, 30_000);
+
+    const rebellingAgentIds = useMemo(
+        () => new Set(rebels.map(r => r.agentId)),
+        [rebels],
+    );
+
+    return { rebels, rebellingAgentIds, loading };
+}
+
+// ─── useInterval — setinterval with saved callback ───
 
 export function useInterval(callback: () => void, delay: number | null) {
     const savedCallback = useRef(callback);

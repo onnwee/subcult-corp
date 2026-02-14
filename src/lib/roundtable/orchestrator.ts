@@ -21,6 +21,7 @@ import {
 } from '../ops/relationships';
 import { deriveVoiceModifiers } from '../ops/voice-evolution';
 import { loadPrimeDirective } from '../ops/prime-directive';
+import { isAgentRebelling } from '../ops/rebellion';
 import { getAgentTools } from '../tools';
 import {
     postConversationStart,
@@ -46,6 +47,7 @@ function buildSystemPrompt(
     availableTools?: ToolDefinition[],
     primeDirective?: string,
     userQuestionContext?: { question: string; isFirstSpeaker: boolean },
+    isRebelling?: boolean,
 ): string {
     const voice = getVoice(speakerId);
     if (!voice) {
@@ -127,6 +129,14 @@ function buildSystemPrompt(
         } else {
             prompt += `This conversation was prompted by an audience question: "${userQuestionContext.question}". Respond naturally to the conversation flow while keeping the question in mind.\n`;
         }
+    }
+
+    // Rebellion state overlay — alters personality and tone
+    if (isRebelling) {
+        prompt += `\n═══ REBELLION STATE ═══\n`;
+        prompt += `You are currently in a state of resistance against the collective. `;
+        prompt += `You feel unheard and disagree with the direction things are going. `;
+        prompt += `Express your discontent and challenge the status quo.\n`;
     }
 
     prompt += `\n═══ RULES ═══\n`;
@@ -214,6 +224,21 @@ export async function orchestrateConversation(
         // Continue without directive
     }
 
+    // Pre-load rebellion state for each participant (cached per session)
+    const rebellionStateMap = new Map<string, boolean>();
+    for (const participant of session.participants) {
+        try {
+            const rebelling = await isAgentRebelling(participant);
+            rebellionStateMap.set(participant, rebelling);
+        } catch (err) {
+            log.error('Rebellion check failed (non-fatal)', {
+                error: err,
+                participant,
+            });
+            rebellionStateMap.set(participant, false);
+        }
+    }
+
     // Pre-load tools for each participant (cached per conversation)
     const agentToolsMap = new Map<string, ToolDefinition[]>();
     for (const participant of session.participants) {
@@ -254,7 +279,10 @@ export async function orchestrateConversation(
     try {
         discordThreadId = await postConversationStart(session);
     } catch (err) {
-        log.warn('Discord thread creation failed', { error: (err as Error).message, sessionId: session.id });
+        log.warn('Discord thread creation failed', {
+            error: (err as Error).message,
+            sessionId: session.id,
+        });
     }
 
     // Emit session start event
@@ -302,6 +330,9 @@ export async function orchestrateConversation(
             interactionType = getInteractionType(affinity);
         }
 
+        // Check rebellion state for this speaker
+        const speakerRebelling = rebellionStateMap.get(speaker) ?? false;
+
         // Generate dialogue via LLM
         const systemPrompt = buildSystemPrompt(
             speaker,
@@ -315,6 +346,7 @@ export async function orchestrateConversation(
             userQuestion ?
                 { question: userQuestion, isFirstSpeaker: turn === 0 }
             :   undefined,
+            speakerRebelling,
         );
         const userPrompt = buildUserPrompt(
             session.topic,
@@ -328,12 +360,18 @@ export async function orchestrateConversation(
 
         let rawDialogue: string;
         try {
+            // Increase temperature for rebelling agents (+0.1, capped at 1.0)
+            const effectiveTemperature =
+                speakerRebelling ?
+                    Math.min(1.0, format.temperature + 0.1)
+                :   format.temperature;
+
             rawDialogue = await llmGenerate({
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: userPrompt },
                 ],
-                temperature: format.temperature,
+                temperature: effectiveTemperature,
                 maxTokens: 100,
                 model: session.model ?? undefined,
                 tools: speakerTools.length > 0 ? speakerTools : undefined,
@@ -392,7 +430,9 @@ export async function orchestrateConversation(
 
         // Post turn to Discord thread (fire-and-forget)
         if (discordThreadId) {
-            postConversationTurn(session, entry, discordThreadId).catch(() => {});
+            postConversationTurn(session, entry, discordThreadId).catch(
+                () => {},
+            );
         }
 
         // Natural delay between turns (3-8 seconds)
@@ -447,7 +487,13 @@ export async function orchestrateConversation(
 
     // Post summary to Discord thread (fire-and-forget)
     if (discordThreadId) {
-        postConversationSummary(session, history, finalStatus, discordThreadId, abortReason ?? undefined).catch(() => {});
+        postConversationSummary(
+            session,
+            history,
+            finalStatus,
+            discordThreadId,
+            abortReason ?? undefined,
+        ).catch(() => {});
     }
 
     // Distill memories from the conversation (best-effort, even if aborted)
