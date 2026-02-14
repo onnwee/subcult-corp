@@ -214,13 +214,14 @@ function computeNextFireAt(cronExpr: string, timezone: string): Date {
             hour12: false,
         });
         const parts = Object.fromEntries(
-            formatter.formatToParts(candidate).map(p => [p.type, p.value])
+            formatter.formatToParts(candidate).map(p => [p.type, p.value]),
         );
 
         const min = parseInt(parts.minute ?? '0');
         const hour = parseInt(parts.hour ?? '0');
-        const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-            .indexOf(parts.weekday ?? 'Mon');
+        const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(
+            parts.weekday ?? 'Mon',
+        );
         const dom = parseInt(parts.day ?? '1');
         const month = parseInt(parts.month ?? '1');
 
@@ -244,7 +245,12 @@ function computeNextFireAt(cronExpr: string, timezone: string): Date {
 }
 
 /** Match a single cron field against a value */
-function matchField(field: string, value: number, _min: number, _max: number): boolean {
+function matchField(
+    field: string,
+    value: number,
+    _min: number,
+    _max: number,
+): boolean {
     if (field === '*') return true;
     if (field.startsWith('*/')) return value % parseInt(field.slice(2)) === 0;
 
@@ -272,7 +278,10 @@ async function main() {
             continue;
         }
 
-        const nextFireAt = computeNextFireAt(job.cron_expression, 'America/Chicago');
+        const nextFireAt = computeNextFireAt(
+            job.cron_expression,
+            'America/Chicago',
+        );
 
         await sql`
             INSERT INTO ops_cron_schedules ${sql({
@@ -289,7 +298,9 @@ async function main() {
             })}
         `;
 
-        console.log(`  OK: "${job.name}" → ${job.agent_id} (${job.cron_expression}) next: ${nextFireAt.toISOString()}`);
+        console.log(
+            `  OK: "${job.name}" → ${job.agent_id} (${job.cron_expression}) next: ${nextFireAt.toISOString()}`,
+        );
     }
 
     console.log('Done.');
