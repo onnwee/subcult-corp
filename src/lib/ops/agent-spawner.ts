@@ -58,7 +58,7 @@ function validateAndNormalizePersonality(
 ): AgentPersonality {
     if (!personality || typeof personality !== 'object') {
         throw new Error(
-            'Invalid personality: must be a non-null object',
+            'Invalid personality object in agent proposal: must be a non-null object',
         );
     }
 
