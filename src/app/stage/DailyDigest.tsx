@@ -36,7 +36,13 @@ function getAgentName(agentId: string): string {
 
 // ─── Stat Badge ───
 
-function StatBadge({ label, value }: { label: string; value: number | string }) {
+function StatBadge({
+    label,
+    value,
+}: {
+    label: string;
+    value: number | string;
+}) {
     return (
         <span className='inline-flex items-center gap-1 rounded-md bg-zinc-800/80 px-2 py-0.5 text-[11px] text-zinc-400 border border-zinc-700/50'>
             <span className='font-medium text-zinc-300'>{value}</span>
@@ -78,16 +84,25 @@ function DigestContent({ digest }: { digest: DigestEntry }) {
                     <StatBadge label='events' value={stats.events} />
                 )}
                 {stats.conversations > 0 && (
-                    <StatBadge label='conversations' value={stats.conversations} />
+                    <StatBadge
+                        label='conversations'
+                        value={stats.conversations}
+                    />
                 )}
                 {stats.missions_succeeded > 0 && (
-                    <StatBadge label='missions' value={stats.missions_succeeded} />
+                    <StatBadge
+                        label='missions'
+                        value={stats.missions_succeeded}
+                    />
                 )}
                 {stats.memories > 0 && (
                     <StatBadge label='memories' value={stats.memories} />
                 )}
                 {stats.costs > 0 && (
-                    <StatBadge label='cost' value={`$${stats.costs.toFixed(4)}`} />
+                    <StatBadge
+                        label='cost'
+                        value={`$${stats.costs.toFixed(4)}`}
+                    />
                 )}
             </div>
 
@@ -104,16 +119,26 @@ function DigestContent({ digest }: { digest: DigestEntry }) {
                     </p>
                     <ul className='space-y-1'>
                         {highlights.map((h, i) => (
-                            <li key={i} className='flex items-start gap-2 text-[12px] text-zinc-400'>
+                            <li
+                                key={i}
+                                className='flex items-start gap-2 text-[12px] text-zinc-400'
+                            >
                                 <span
                                     className='mt-1.5 h-1.5 w-1.5 rounded-full shrink-0'
-                                    style={{ backgroundColor: h.agentId ? getAgentColor(h.agentId) : '#71717a' }}
+                                    style={{
+                                        backgroundColor:
+                                            h.agentId ?
+                                                getAgentColor(h.agentId)
+                                            :   '#71717a',
+                                    }}
                                 />
                                 <span>
                                     {h.agentId && (
                                         <span
                                             className='font-medium mr-1'
-                                            style={{ color: getAgentColor(h.agentId) }}
+                                            style={{
+                                                color: getAgentColor(h.agentId),
+                                            }}
                                         >
                                             {getAgentName(h.agentId)}:
                                         </span>
@@ -133,7 +158,9 @@ function DigestContent({ digest }: { digest: DigestEntry }) {
 
 export function DailyDigest() {
     const [collapsed, setCollapsed] = useState(false);
-    const [selectedDate, setSelectedDate] = useState<string | undefined>(undefined);
+    const [selectedDate, setSelectedDate] = useState<string | undefined>(
+        undefined,
+    );
     const { digest, digests, loading, error } = useDigest(selectedDate);
 
     // Build date navigation from available digests
@@ -151,7 +178,10 @@ export function DailyDigest() {
             <div className='rounded-lg border border-zinc-800/80 bg-zinc-900/50 p-4'>
                 <div className='flex items-center gap-2 text-zinc-500 text-sm'>
                     <span>🗂️</span>
-                    <span>No digest available yet. Digests generate daily at 11PM CST.</span>
+                    <span>
+                        No digest available yet. Digests generate daily at 11PM
+                        CST.
+                    </span>
                 </div>
             </div>
         );
@@ -188,11 +218,17 @@ export function DailyDigest() {
                             {availableDates.map(d => (
                                 <button
                                     key={d}
-                                    onClick={() => setSelectedDate(d === digest.digest_date ? undefined : d)}
+                                    onClick={() =>
+                                        setSelectedDate(
+                                            d === digest.digest_date ?
+                                                undefined
+                                            :   d,
+                                        )
+                                    }
                                     className={`px-2 py-0.5 rounded text-[10px] transition-colors ${
-                                        d === digest.digest_date
-                                            ? 'bg-zinc-700 text-zinc-200'
-                                            : 'bg-zinc-800/50 text-zinc-500 hover:text-zinc-300'
+                                        d === digest.digest_date ?
+                                            'bg-zinc-700 text-zinc-200'
+                                        :   'bg-zinc-800/50 text-zinc-500 hover:text-zinc-300'
                                     }`}
                                 >
                                     {formatShortDate(d)}

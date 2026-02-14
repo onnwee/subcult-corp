@@ -57,18 +57,24 @@ async function gatherDayData(date: Date): Promise<DayData> {
     const end = dayEnd.toISOString();
 
     // Gather all data in parallel
-    const [eventRows, sessionRows, memoryRows, missionRows, costRows, topEventRows] =
-        await Promise.all([
-            // Event counts by kind
-            sql<{ kind: string; count: string }[]>`
+    const [
+        eventRows,
+        sessionRows,
+        memoryRows,
+        missionRows,
+        costRows,
+        topEventRows,
+    ] = await Promise.all([
+        // Event counts by kind
+        sql<{ kind: string; count: string }[]>`
                 SELECT kind, COUNT(*)::text as count
                 FROM ops_agent_events
                 WHERE created_at >= ${start} AND created_at < ${end}
                 GROUP BY kind
             `,
 
-            // Completed roundtable sessions
-            sql<{ topic: string; participants: string; turn_count: string }[]>`
+        // Completed roundtable sessions
+        sql<{ topic: string; participants: string; turn_count: string }[]>`
                 SELECT
                     rs.topic,
                     COALESCE(rs.participants::text, '[]') as participants,
@@ -82,16 +88,16 @@ async function gatherDayData(date: Date): Promise<DayData> {
                 LIMIT 10
             `,
 
-            // New memories by agent
-            sql<{ agent_id: string; count: string }[]>`
+        // New memories by agent
+        sql<{ agent_id: string; count: string }[]>`
                 SELECT agent_id, COUNT(*)::text as count
                 FROM ops_agent_memory
                 WHERE created_at >= ${start} AND created_at < ${end}
                 GROUP BY agent_id
             `,
 
-            // Mission outcomes
-            sql<{ status: string; count: string }[]>`
+        // Mission outcomes
+        sql<{ status: string; count: string }[]>`
                 SELECT status, COUNT(*)::text as count
                 FROM ops_missions
                 WHERE updated_at >= ${start} AND updated_at < ${end}
@@ -99,15 +105,15 @@ async function gatherDayData(date: Date): Promise<DayData> {
                 GROUP BY status
             `,
 
-            // Total cost for the day
-            sql<{ total: string }[]>`
+        // Total cost for the day
+        sql<{ total: string }[]>`
                 SELECT COALESCE(SUM(cost_usd), 0)::text as total
                 FROM ops_llm_usage
                 WHERE created_at >= ${start} AND created_at < ${end}
             `,
 
-            // Top notable events (for highlights extraction)
-            sql<{ id: string; agent_id: string; title: string; kind: string }[]>`
+        // Top notable events (for highlights extraction)
+        sql<{ id: string; agent_id: string; title: string; kind: string }[]>`
                 SELECT id, agent_id, title, kind
                 FROM ops_agent_events
                 WHERE created_at >= ${start} AND created_at < ${end}
@@ -115,7 +121,7 @@ async function gatherDayData(date: Date): Promise<DayData> {
                 ORDER BY created_at DESC
                 LIMIT 20
             `,
-        ]);
+    ]);
 
     const eventCounts: Record<string, number> = {};
     for (const row of eventRows) {
@@ -126,7 +132,9 @@ async function gatherDayData(date: Date): Promise<DayData> {
         let participants: string[] = [];
         try {
             participants = JSON.parse(r.participants);
-        } catch { /* ignore */ }
+        } catch {
+            /* ignore */
+        }
         return {
             topic: r.topic,
             participants,
@@ -141,8 +149,10 @@ async function gatherDayData(date: Date): Promise<DayData> {
 
     const missionOutcomes = { succeeded: 0, failed: 0 };
     for (const row of missionRows) {
-        if (row.status === 'succeeded') missionOutcomes.succeeded = parseInt(row.count, 10);
-        if (row.status === 'failed') missionOutcomes.failed = parseInt(row.count, 10);
+        if (row.status === 'succeeded')
+            missionOutcomes.succeeded = parseInt(row.count, 10);
+        if (row.status === 'failed')
+            missionOutcomes.failed = parseInt(row.count, 10);
     }
 
     return {
@@ -171,7 +181,10 @@ export async function generateDailyDigest(date?: Date): Promise<string | null> {
         SELECT id FROM ops_daily_digests WHERE digest_date = ${dateStr}
     `;
     if (existing.length > 0) {
-        log.info('Digest already exists for date', { date: dateStr, id: existing[0].id });
+        log.info('Digest already exists for date', {
+            date: dateStr,
+            id: existing[0].id,
+        });
         return null;
     }
 
@@ -181,8 +194,14 @@ export async function generateDailyDigest(date?: Date): Promise<string | null> {
     const data = await gatherDayData(targetDate);
 
     // Build stats
-    const totalEvents = Object.values(data.eventCounts).reduce((a, b) => a + b, 0);
-    const totalMemories = Object.values(data.memoriesByAgent).reduce((a, b) => a + b, 0);
+    const totalEvents = Object.values(data.eventCounts).reduce(
+        (a, b) => a + b,
+        0,
+    );
+    const totalMemories = Object.values(data.memoriesByAgent).reduce(
+        (a, b) => a + b,
+        0,
+    );
     const stats: DigestStats = {
         events: totalEvents,
         conversations: data.sessions.length,
@@ -195,26 +214,37 @@ export async function generateDailyDigest(date?: Date): Promise<string | null> {
     // Build prompt for Mux
     const dataSummary = [
         `Date: ${dateStr}`,
-        `Total events: ${totalEvents} (${Object.entries(data.eventCounts).map(([k, v]) => `${k}: ${v}`).join(', ')})`,
+        `Total events: ${totalEvents} (${Object.entries(data.eventCounts)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(', ')})`,
         `Conversations completed: ${data.sessions.length}`,
-        ...(data.sessions.length > 0
-            ? data.sessions.slice(0, 5).map(
-                  s => `  - "${s.topic}" (${s.participants.join(', ')}, ${s.turns} turns)`,
-              )
-            : []),
+        ...(data.sessions.length > 0 ?
+            data.sessions
+                .slice(0, 5)
+                .map(
+                    s =>
+                        `  - "${s.topic}" (${s.participants.join(', ')}, ${s.turns} turns)`,
+                )
+        :   []),
         `Missions: ${data.missionOutcomes.succeeded} succeeded, ${data.missionOutcomes.failed} failed`,
-        `New memories: ${totalMemories} (${Object.entries(data.memoriesByAgent).map(([a, c]) => `${a}: ${c}`).join(', ')})`,
+        `New memories: ${totalMemories} (${Object.entries(data.memoriesByAgent)
+            .map(([a, c]) => `${a}: ${c}`)
+            .join(', ')})`,
         `LLM costs: $${stats.costs}`,
         '',
         'Notable events:',
-        ...(data.topEvents.length > 0
-            ? data.topEvents.slice(0, 10).map(e => `  - [${e.agent_id}/${e.kind}] ${e.title}`)
-            : ['  (none)']),
+        ...(data.topEvents.length > 0 ?
+            data.topEvents
+                .slice(0, 10)
+                .map(e => `  - [${e.agent_id}/${e.kind}] ${e.title}`)
+        :   ['  (none)']),
     ].join('\n');
 
     // Get Mux's voice
     const muxVoice = getVoice('mux');
-    const systemDirective = muxVoice?.systemDirective ?? 'You are Mux, the operational labor agent.';
+    const systemDirective =
+        muxVoice?.systemDirective ??
+        'You are Mux, the operational labor agent.';
 
     // Generate summary via LLM
     const summary = await llmGenerate({
@@ -258,6 +288,10 @@ export async function generateDailyDigest(date?: Date): Promise<string | null> {
         )
     `;
 
-    log.info('Daily digest generated', { date: dateStr, digestId: inserted.id, stats });
+    log.info('Daily digest generated', {
+        date: dateStr,
+        digestId: inserted.id,
+        stats,
+    });
     return inserted.id;
 }

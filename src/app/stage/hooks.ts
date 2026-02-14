@@ -578,9 +578,7 @@ export function useCosts(params?: { period?: string; groupBy?: string }) {
             const qp = new URLSearchParams();
             qp.set('period', period);
             qp.set('group_by', groupBy);
-            const data = await fetchJson<CostData>(
-                `/api/ops/costs?${qp}`,
-            );
+            const data = await fetchJson<CostData>(`/api/ops/costs?${qp}`);
             setCosts(data);
             setError(null);
         } catch (err) {

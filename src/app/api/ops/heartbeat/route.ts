@@ -145,7 +145,10 @@ export async function GET(req: NextRequest) {
             if (cstHour >= 22 || cstHour <= 1) {
                 // Window around 11PM CST — generateDailyDigest deduplicates internally
                 const digestId = await generateDailyDigest();
-                results.digest = digestId ? { generated: true, id: digestId } : { generated: false, reason: 'already_exists' };
+                results.digest =
+                    digestId ?
+                        { generated: true, id: digestId }
+                    :   { generated: false, reason: 'already_exists' };
             } else {
                 results.digest = { generated: false, reason: 'outside_window' };
             }

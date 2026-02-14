@@ -22,8 +22,12 @@ function parseRow(row: DigestRow) {
         id: row.id,
         digest_date: row.digest_date,
         summary: row.summary,
-        highlights: typeof row.highlights === 'string' ? JSON.parse(row.highlights) : row.highlights,
-        stats: typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats,
+        highlights:
+            typeof row.highlights === 'string' ?
+                JSON.parse(row.highlights)
+            :   row.highlights,
+        stats:
+            typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats,
         generated_by: row.generated_by,
         created_at: row.created_at,
     };
@@ -62,7 +66,10 @@ export async function GET(request: NextRequest) {
         }
 
         // List query
-        const limit = Math.min(Math.max(parseInt(limitParam ?? '7', 10) || 7, 1), 30);
+        const limit = Math.min(
+            Math.max(parseInt(limitParam ?? '7', 10) || 7, 1),
+            30,
+        );
 
         const rows = await sql<DigestRow[]>`
             SELECT id, digest_date::text, summary, highlights, stats, generated_by, created_at
