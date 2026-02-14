@@ -64,6 +64,25 @@ async function pollAgentSessions(): Promise<boolean> {
 
     try {
         await executeAgentSession(session);
+
+        // Post artifact to Discord if this was a conversation synthesis session
+        if (session.source === 'conversation' && session.source_id) {
+            try {
+                const { postArtifactToDiscord } = await import('../../src/lib/discord/roundtable');
+                // Read the completed session to get the result text
+                const [completed] = await sql<[{ result: Record<string, unknown> | null }]>`
+                    SELECT result FROM ops_agent_sessions WHERE id = ${session.id}
+                `;
+                const artifactText = (completed?.result as Record<string, string>)?.text
+                    ?? (completed?.result as Record<string, string>)?.output
+                    ?? '';
+                if (artifactText) {
+                    await postArtifactToDiscord(session.source_id, '', artifactText);
+                }
+            } catch {
+                // Non-fatal — Discord posting should never stall the worker
+            }
+        }
     } catch (err) {
         log.error('Agent session execution failed', {
             error: err,

@@ -365,16 +365,16 @@ function formatContext(ctx) {
 }
 function createLoggerInternal(bindings) {
   const write = IS_PRODUCTION ? writeJson : writePretty;
-  function log14(level, msg, ctx) {
+  function log17(level, msg, ctx) {
     if (LEVEL_VALUES[level] < MIN_LEVEL) return;
     write(level, msg, bindings, normalizeContext(ctx));
   }
   return {
-    debug: (msg, ctx) => log14("debug", msg, ctx),
-    info: (msg, ctx) => log14("info", msg, ctx),
-    warn: (msg, ctx) => log14("warn", msg, ctx),
-    error: (msg, ctx) => log14("error", msg, ctx),
-    fatal: (msg, ctx) => log14("fatal", msg, ctx),
+    debug: (msg, ctx) => log17("debug", msg, ctx),
+    info: (msg, ctx) => log17("info", msg, ctx),
+    warn: (msg, ctx) => log17("warn", msg, ctx),
+    error: (msg, ctx) => log17("error", msg, ctx),
+    fatal: (msg, ctx) => log17("fatal", msg, ctx),
     child: (childBindings) => createLoggerInternal({ ...bindings, ...childBindings })
   };
 }
@@ -434,15 +434,24 @@ async function lookupCached(context) {
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.models.length > 0 ? cached.models : null;
   }
-  const [row] = await sql`
-        SELECT models FROM ops_model_routing WHERE context = ${context}
-    `;
-  if (!row) {
+  try {
+    const [row] = await sql`
+            SELECT models FROM ops_model_routing WHERE context = ${context}
+        `;
+    if (!row || !row.models || row.models.length === 0) {
+      cache.set(context, { models: [], ts: Date.now() });
+      return null;
+    }
+    cache.set(context, { models: row.models, ts: Date.now() });
+    return row.models;
+  } catch (error) {
+    console.error(
+      "resolveModels: failed to query ops_model_routing; falling back to default models",
+      error
+    );
     cache.set(context, { models: [], ts: Date.now() });
     return null;
   }
-  cache.set(context, { models: row.models, ts: Date.now() });
-  return row.models;
 }
 async function lookupOrDefault(context) {
   const result = await lookupCached(context);
@@ -484,7 +493,10 @@ function normalizeModel(id) {
 async function resolveModelsWithEnv(context) {
   const models = await resolveModels(context);
   if (!LLM_MODEL_ENV) return models;
-  return [LLM_MODEL_ENV, ...models.filter((m) => m !== LLM_MODEL_ENV)];
+  return [
+    LLM_MODEL_ENV,
+    ...models.filter((m) => m !== LLM_MODEL_ENV)
+  ];
 }
 function getClient() {
   if (!_client) {
@@ -504,7 +516,10 @@ async function ollamaGenerate(messages, temperature, model = OLLAMA_MODEL) {
   if (!OLLAMA_BASE_URL) return null;
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      OLLAMA_TIMEOUT_MS
+    );
     const response = await fetch(`${OLLAMA_BASE_URL}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -605,7 +620,11 @@ async function trackUsage(model, usage, durationMs, trackingContext) {
             )
         `;
   } catch (error) {
-    log.error("Failed to track LLM usage", { error, model, trackingContext });
+    log.error("Failed to track LLM usage", {
+      error,
+      model,
+      trackingContext
+    });
   }
 }
 async function llmGenerate(options) {
@@ -627,6 +646,9 @@ async function llmGenerate(options) {
   }
   const resolved = model ? [normalizeModel(model)] : await resolveModelsWithEnv(trackingContext?.context);
   const modelList = resolved.slice(0, MAX_MODELS_ARRAY);
+  if (modelList.length === 0) {
+    throw new Error("No LLM models available after resolution");
+  }
   const buildCallOpts = (spec) => {
     const isArray = Array.isArray(spec);
     const opts = {
@@ -664,10 +686,14 @@ async function llmGenerate(options) {
   } catch (error) {
     const err = error;
     if (err.statusCode === 401) {
-      throw new Error("Invalid OpenRouter API key \u2014 check your OPENROUTER_API_KEY");
+      throw new Error(
+        "Invalid OpenRouter API key \u2014 check your OPENROUTER_API_KEY"
+      );
     }
     if (err.statusCode === 402) {
-      throw new Error("Insufficient OpenRouter credits \u2014 add credits at openrouter.ai");
+      throw new Error(
+        "Insufficient OpenRouter credits \u2014 add credits at openrouter.ai"
+      );
     }
     if (err.statusCode === 429) {
       throw new Error("OpenRouter rate limited \u2014 try again shortly");
@@ -1253,6 +1279,373 @@ var init_events = __esm({
     init_db();
     init_logger();
     log4 = logger.child({ module: "events" });
+  }
+});
+
+// src/lib/discord/client.ts
+async function postToWebhook(options) {
+  const url = new URL(options.webhookUrl);
+  url.searchParams.set("wait", "true");
+  if (options.threadId) {
+    url.searchParams.set("thread_id", options.threadId);
+  }
+  const body = {};
+  if (options.username) body.username = options.username;
+  if (options.content) body.content = options.content;
+  if (options.embeds) body.embeds = options.embeds;
+  if (options.threadName) body.thread_name = options.threadName;
+  try {
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      log11.warn("Webhook POST failed", {
+        status: res.status,
+        body: text.slice(0, 200)
+      });
+      return null;
+    }
+    return await res.json();
+  } catch (err) {
+    log11.warn("Webhook POST error", { error: err.message });
+    return null;
+  }
+}
+async function createThread(webhookUrl, threadName, content, embeds, username) {
+  const result = await postToWebhook({
+    webhookUrl,
+    threadName,
+    content,
+    embeds,
+    username
+  });
+  return result?.channel_id ?? null;
+}
+async function discordFetch(path2, options = {}) {
+  const res = await fetch(`${DISCORD_API}${path2}`, {
+    ...options,
+    headers: {
+      Authorization: `Bot ${BOT_TOKEN}`,
+      "Content-Type": "application/json",
+      ...options.headers
+    }
+  });
+  if (res.status === 429) {
+    const retryAfter = res.headers.get("Retry-After");
+    log11.warn("Discord rate limited", { retryAfter, path: path2 });
+  }
+  return res;
+}
+async function getOrCreateWebhook(channelId, name = "Subcult") {
+  if (!BOT_TOKEN) {
+    log11.warn("DISCORD_BOT_TOKEN not set, skipping webhook provisioning");
+    return null;
+  }
+  const cached = webhookCache.get(channelId);
+  if (cached) return cached;
+  try {
+    const listRes = await discordFetch(
+      `/channels/${channelId}/webhooks`
+    );
+    if (!listRes.ok) {
+      log11.warn("Failed to list webhooks", {
+        status: listRes.status,
+        channelId
+      });
+      return null;
+    }
+    const webhooks = await listRes.json();
+    const existing = webhooks.find((w) => w.name === name);
+    if (existing) {
+      const url2 = `https://discord.com/api/webhooks/${existing.id}/${existing.token}`;
+      webhookCache.set(channelId, url2);
+      return url2;
+    }
+    const createRes = await discordFetch(
+      `/channels/${channelId}/webhooks`,
+      {
+        method: "POST",
+        body: JSON.stringify({ name })
+      }
+    );
+    if (!createRes.ok) {
+      log11.warn("Failed to create webhook", {
+        status: createRes.status,
+        channelId
+      });
+      return null;
+    }
+    const created = await createRes.json();
+    const url = `https://discord.com/api/webhooks/${created.id}/${created.token}`;
+    webhookCache.set(channelId, url);
+    return url;
+  } catch (err) {
+    log11.warn("Webhook provisioning error", {
+      error: err.message,
+      channelId
+    });
+    return null;
+  }
+}
+var log11, DISCORD_API, BOT_TOKEN, webhookCache;
+var init_client2 = __esm({
+  "src/lib/discord/client.ts"() {
+    "use strict";
+    init_logger();
+    log11 = logger.child({ module: "discord" });
+    DISCORD_API = "https://discord.com/api/v10";
+    BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+    webhookCache = /* @__PURE__ */ new Map();
+  }
+});
+
+// src/lib/discord/channels.ts
+function buildWebhookUrl(webhookId, webhookToken) {
+  return `https://discord.com/api/webhooks/${webhookId}/${webhookToken}`;
+}
+async function getWebhookUrl(channelName) {
+  const cached = channelCache.get(channelName);
+  if (cached) {
+    if (!cached.enabled) return null;
+    if (cached.webhookUrl) return cached.webhookUrl;
+  }
+  const [row] = await sql`
+        SELECT discord_channel_id, webhook_id, webhook_token, enabled
+        FROM ops_discord_channels
+        WHERE name = ${channelName}
+    `;
+  if (!row) {
+    log12.debug("Channel not configured", { channelName });
+    return null;
+  }
+  if (!row.enabled) {
+    channelCache.set(channelName, {
+      discordChannelId: row.discord_channel_id,
+      webhookUrl: null,
+      enabled: false
+    });
+    return null;
+  }
+  if (row.webhook_id && row.webhook_token) {
+    const webhookUrl2 = buildWebhookUrl(row.webhook_id, row.webhook_token);
+    channelCache.set(channelName, {
+      discordChannelId: row.discord_channel_id,
+      webhookUrl: webhookUrl2,
+      enabled: true
+    });
+    return webhookUrl2;
+  }
+  const webhookUrl = await getOrCreateWebhook(row.discord_channel_id);
+  if (webhookUrl) {
+    const match = webhookUrl.match(/\/webhooks\/(\d+)\/(.+)$/);
+    if (match) {
+      await sql`
+                UPDATE ops_discord_channels
+                SET webhook_id = ${match[1]}, webhook_token = ${match[2]}
+                WHERE name = ${channelName}
+            `;
+    }
+    channelCache.set(channelName, {
+      discordChannelId: row.discord_channel_id,
+      webhookUrl,
+      enabled: true
+    });
+  }
+  return webhookUrl;
+}
+function getChannelForFormat(format) {
+  return FORMAT_CHANNEL_MAP[format];
+}
+var log12, FORMAT_CHANNEL_MAP, channelCache;
+var init_channels = __esm({
+  "src/lib/discord/channels.ts"() {
+    "use strict";
+    init_db();
+    init_client2();
+    init_logger();
+    log12 = logger.child({ module: "discord-channels" });
+    FORMAT_CHANNEL_MAP = {
+      standup: "roundtable",
+      checkin: "roundtable",
+      triage: "roundtable",
+      deep_dive: "roundtable",
+      risk_review: "roundtable",
+      strategy: "roundtable",
+      planning: "roundtable",
+      shipping: "roundtable",
+      retro: "roundtable",
+      debate: "roundtable",
+      cross_exam: "roundtable",
+      reframe: "roundtable",
+      content_review: "roundtable",
+      brainstorm: "brainstorm",
+      writing_room: "drafts",
+      watercooler: "watercooler"
+    };
+    channelCache = /* @__PURE__ */ new Map();
+  }
+});
+
+// src/lib/discord/roundtable.ts
+var roundtable_exports = {};
+__export(roundtable_exports, {
+  postArtifactToDiscord: () => postArtifactToDiscord,
+  postConversationStart: () => postConversationStart,
+  postConversationSummary: () => postConversationSummary,
+  postConversationTurn: () => postConversationTurn
+});
+async function postConversationStart(session) {
+  const channelName = getChannelForFormat(session.format);
+  const webhookUrl = await getWebhookUrl(channelName);
+  if (!webhookUrl) return null;
+  const participantList = session.participants.map((p) => {
+    const voice = getVoice(p);
+    return voice ? `${voice.symbol} ${voice.displayName}` : p;
+  }).join(", ");
+  const threadTitle = `${session.format.toUpperCase()}: ${session.topic.slice(0, 90)}`;
+  const embed = {
+    title: `${session.format} \u2014 starting`,
+    description: session.topic,
+    color: 3224132,
+    // neutral dark
+    fields: [
+      {
+        name: "Participants",
+        value: participantList,
+        inline: false
+      }
+    ],
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  const threadId = await createThread(
+    webhookUrl,
+    threadTitle,
+    "",
+    [embed],
+    "\u{1F4E1} Subcult Roundtable"
+  );
+  if (threadId) {
+    await sql`
+            UPDATE ops_roundtable_sessions
+            SET metadata = COALESCE(metadata, '{}'::jsonb) || ${jsonb({ discordThreadId: threadId })}
+            WHERE id = ${session.id}
+        `;
+    log13.info("Discord thread created", {
+      sessionId: session.id,
+      threadId,
+      channel: channelName
+    });
+  }
+  return threadId;
+}
+async function postConversationTurn(session, entry, threadId) {
+  const channelName = getChannelForFormat(session.format);
+  const webhookUrl = await getWebhookUrl(channelName);
+  if (!webhookUrl) return;
+  const voice = getVoice(entry.speaker);
+  const username = voice ? `${voice.symbol} ${voice.displayName}` : entry.speaker;
+  await postToWebhook({
+    webhookUrl,
+    threadId,
+    username,
+    content: entry.dialogue
+  });
+}
+async function postConversationSummary(session, history, status, threadId, abortReason) {
+  const channelName = getChannelForFormat(session.format);
+  const webhookUrl = await getWebhookUrl(channelName);
+  if (!webhookUrl) return;
+  const speakers = [
+    ...new Set(history.map((h) => h.speaker))
+  ];
+  const speakerNames = speakers.map((s) => {
+    const voice = getVoice(s);
+    return voice ? `${voice.symbol} ${voice.displayName}` : s;
+  }).join(", ");
+  const statusIcon = status === "completed" ? "\u2705" : "\u274C";
+  const title = `${statusIcon} ${session.format} \u2014 ${status}`;
+  const lastExchanges = history.slice(-3).map((h) => {
+    const voice = getVoice(h.speaker);
+    const name = voice?.displayName ?? h.speaker;
+    return `**${name}:** ${h.dialogue}`;
+  }).join("\n");
+  const fields = [
+    { name: "Turns", value: `${history.length}`, inline: true },
+    { name: "Speakers", value: speakerNames, inline: true }
+  ];
+  if (abortReason) {
+    fields.push({
+      name: "Abort Reason",
+      value: abortReason.slice(0, 200),
+      inline: false
+    });
+  }
+  if (lastExchanges) {
+    fields.push({
+      name: "Last Exchanges",
+      value: lastExchanges.slice(0, 1e3),
+      inline: false
+    });
+  }
+  const embed = {
+    title,
+    color: status === "completed" ? 10937249 : 15961e3,
+    fields,
+    footer: { text: `Session ${session.id}` },
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  await postToWebhook({
+    webhookUrl,
+    threadId,
+    username: "\u{1F4E1} Subcult Roundtable",
+    embeds: [embed]
+  });
+}
+async function postArtifactToDiscord(roundtableSessionId, format, artifactText) {
+  const [session] = await sql`
+        SELECT metadata, format FROM ops_roundtable_sessions
+        WHERE id = ${roundtableSessionId}
+    `;
+  const threadId = session?.metadata?.discordThreadId;
+  if (!threadId) return;
+  const channelName = getChannelForFormat(
+    session?.format ?? format
+  );
+  const webhookUrl = await getWebhookUrl(channelName);
+  if (!webhookUrl) return;
+  const truncated = artifactText.length > 3800 ? artifactText.slice(0, 3800) + "\n\n*...truncated*" : artifactText;
+  const embed = {
+    title: "\u{1F4CB} Artifact",
+    description: truncated,
+    color: 7653356,
+    // mux blue
+    footer: { text: `Source: ${roundtableSessionId}` },
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  await postToWebhook({
+    webhookUrl,
+    threadId,
+    username: "\u{1F4CB} Subcult Artifact",
+    embeds: [embed]
+  });
+  log13.info("Artifact posted to Discord", {
+    roundtableSessionId,
+    threadId
+  });
+}
+var log13;
+var init_roundtable = __esm({
+  "src/lib/discord/roundtable.ts"() {
+    "use strict";
+    init_client2();
+    init_channels();
+    init_voices();
+    init_db();
+    init_logger();
+    log13 = logger.child({ module: "discord-roundtable" });
   }
 });
 
@@ -2905,9 +3298,13 @@ function getDroidTools(droidId) {
   });
 }
 
+// src/lib/discord/index.ts
+init_roundtable();
+init_channels();
+
 // src/lib/roundtable/orchestrator.ts
 init_logger();
-var log11 = logger.child({ module: "orchestrator" });
+var log14 = logger.child({ module: "orchestrator" });
 function buildSystemPrompt(speakerId, history, format, topic, interactionType, voiceModifiers, availableTools, primeDirective, userQuestionContext) {
   const voice = getVoice(speakerId);
   if (!voice) {
@@ -3066,7 +3463,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
       const mods = await deriveVoiceModifiers(participant);
       voiceModifiersMap.set(participant, mods);
     } catch (err) {
-      log11.error("Voice modifier derivation failed", {
+      log14.error("Voice modifier derivation failed", {
         error: err,
         participant
       });
@@ -3078,6 +3475,12 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
         SET status = 'running', started_at = NOW()
         WHERE id = ${session.id}
     `;
+  let discordThreadId = null;
+  try {
+    discordThreadId = await postConversationStart(session);
+  } catch (err) {
+    log14.warn("Discord thread creation failed", { error: err.message, sessionId: session.id });
+  }
   await emitEvent({
     agent_id: "system",
     kind: "conversation_started",
@@ -3150,7 +3553,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
         }
       });
     } catch (err) {
-      log11.error("LLM failed during conversation", {
+      log14.error("LLM failed during conversation", {
         error: err,
         turn,
         speaker: speakerName,
@@ -3186,6 +3589,10 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
         dialogue
       }
     });
+    if (discordThreadId) {
+      postConversationTurn(session, entry, discordThreadId).catch(() => {
+      });
+    }
     if (delayBetweenTurns && turn < maxTurns - 1) {
       const delay = 3e3 + Math.random() * 5e3;
       await new Promise((resolve) => setTimeout(resolve, delay));
@@ -3220,6 +3627,10 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
       ...abortReason ? { abortReason } : {}
     }
   });
+  if (discordThreadId) {
+    postConversationSummary(session, history, finalStatus, discordThreadId, abortReason ?? void 0).catch(() => {
+    });
+  }
   if (history.length >= 3) {
     try {
       await distillConversationMemories(
@@ -3228,7 +3639,7 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
         session.format
       );
     } catch (err) {
-      log11.error("Memory distillation failed", {
+      log14.error("Memory distillation failed", {
         error: err,
         sessionId: session.id
       });
@@ -3239,13 +3650,13 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
         history
       );
       if (artifactSessionId) {
-        log11.info("Artifact synthesis queued", {
+        log14.info("Artifact synthesis queued", {
           sessionId: session.id,
           artifactSession: artifactSessionId
         });
       }
     } catch (err) {
-      log11.error("Artifact synthesis failed", {
+      log14.error("Artifact synthesis failed", {
         error: err,
         sessionId: session.id
       });
@@ -3260,7 +3671,7 @@ init_client();
 init_voices();
 init_events();
 init_logger();
-var log12 = logger.child({ module: "agent-session" });
+var log15 = logger.child({ module: "agent-session" });
 async function executeAgentSession(session) {
   const startTime = Date.now();
   const isDroid = session.agent_id.startsWith("droid-");
@@ -3417,7 +3828,7 @@ Continue with your task. If you're done, provide a final summary.`
     });
   } catch (err) {
     const errorMsg = err.message;
-    log12.error("Agent session failed", {
+    log15.error("Agent session failed", {
       error: err,
       sessionId: session.id,
       agentId,
@@ -3461,14 +3872,14 @@ async function completeSession(sessionId, status, result, toolCalls, llmRounds, 
 
 // scripts/unified-worker/index.ts
 init_logger();
-var log13 = createLogger({ service: "unified-worker" });
+var log16 = createLogger({ service: "unified-worker" });
 var WORKER_ID = `unified-${process.pid}`;
 if (!process.env.DATABASE_URL) {
-  log13.fatal("Missing DATABASE_URL");
+  log16.fatal("Missing DATABASE_URL");
   process.exit(1);
 }
 if (!process.env.OPENROUTER_API_KEY) {
-  log13.fatal("Missing OPENROUTER_API_KEY");
+  log16.fatal("Missing OPENROUTER_API_KEY");
   process.exit(1);
 }
 var sql2 = (0, import_postgres2.default)(process.env.DATABASE_URL, {
@@ -3490,15 +3901,28 @@ async function pollAgentSessions() {
         RETURNING *
     `;
   if (!session) return false;
-  log13.info("Processing agent session", {
+  log16.info("Processing agent session", {
     sessionId: session.id,
     agent: session.agent_id,
     source: session.source
   });
   try {
     await executeAgentSession(session);
+    if (session.source === "conversation" && session.source_id) {
+      try {
+        const { postArtifactToDiscord: postArtifactToDiscord2 } = await Promise.resolve().then(() => (init_roundtable(), roundtable_exports));
+        const [completed] = await sql2`
+                    SELECT result FROM ops_agent_sessions WHERE id = ${session.id}
+                `;
+        const artifactText = completed?.result?.text ?? completed?.result?.output ?? "";
+        if (artifactText) {
+          await postArtifactToDiscord2(session.source_id, "", artifactText);
+        }
+      } catch {
+      }
+    }
   } catch (err) {
-    log13.error("Agent session execution failed", {
+    log16.error("Agent session execution failed", {
       error: err,
       sessionId: session.id
     });
@@ -3533,7 +3957,7 @@ async function pollRoundtables() {
         SET status = 'pending'
         WHERE id = ${session.id}
     `;
-  log13.info("Processing roundtable", {
+  log16.info("Processing roundtable", {
     sessionId: session.id,
     format: session.format,
     topic: session.topic.slice(0, 80)
@@ -3541,7 +3965,7 @@ async function pollRoundtables() {
   try {
     await orchestrateConversation(session, true);
   } catch (err) {
-    log13.error("Roundtable orchestration failed", {
+    log16.error("Roundtable orchestration failed", {
       error: err,
       sessionId: session.id
     });
@@ -3570,7 +3994,7 @@ async function pollMissionSteps() {
         RETURNING *
     `;
   if (!step) return false;
-  log13.info("Processing mission step", {
+  log16.info("Processing mission step", {
     stepId: step.id,
     kind: step.kind,
     missionId: step.mission_id
@@ -3603,7 +4027,7 @@ async function pollMissionSteps() {
                     VALUES (${agentId}, ${outputPrefix}, 'mission', ${step.mission_id}::uuid, NOW() + INTERVAL '4 hours')
                 `;
       } catch (grantErr) {
-        log13.warn("Failed to create ACL grant for step", {
+        log16.warn("Failed to create ACL grant for step", {
           error: grantErr,
           agentId,
           outputPath: step.output_path
@@ -3644,7 +4068,7 @@ async function pollMissionSteps() {
       }
     });
   } catch (err) {
-    log13.error("Mission step failed", { error: err, stepId: step.id });
+    log16.error("Mission step failed", { error: err, stepId: step.id });
     const stepData = await sql2`
             SELECT result FROM ops_mission_steps WHERE id = ${step.id}
         `;
@@ -3726,7 +4150,7 @@ async function pollInitiatives() {
         RETURNING *
     `;
   if (!entry) return false;
-  log13.info("Processing initiative", {
+  log16.info("Processing initiative", {
     entryId: entry.id,
     agent: entry.agent_id
   });
@@ -3792,7 +4216,7 @@ Format as JSON: { "title": "...", "description": "...", "steps": [{ "kind": "...
             WHERE id = ${entry.id}
         `;
   } catch (err) {
-    log13.error("Initiative processing failed", { error: err, entryId: entry.id });
+    log16.error("Initiative processing failed", { error: err, entryId: entry.id });
     await sql2`
             UPDATE ops_initiative_queue
             SET status = 'failed',
@@ -3838,22 +4262,22 @@ async function pollLoop() {
       await finalizeMissionSteps();
       await pollInitiatives();
     } catch (err) {
-      log13.error("Poll loop error", { error: err });
+      log16.error("Poll loop error", { error: err });
     }
     await new Promise((resolve) => setTimeout(resolve, 15e3));
   }
 }
 function shutdown(signal) {
-  log13.info(`Received ${signal}, shutting down...`);
+  log16.info(`Received ${signal}, shutting down...`);
   running = false;
   setTimeout(() => {
-    log13.warn("Forced shutdown after 30s timeout");
+    log16.warn("Forced shutdown after 30s timeout");
     process.exit(1);
   }, 3e4);
 }
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
-log13.info("Unified worker started", {
+log16.info("Unified worker started", {
   workerId: WORKER_ID,
   database: !!process.env.DATABASE_URL,
   openrouter: !!process.env.OPENROUTER_API_KEY,
@@ -3861,10 +4285,10 @@ log13.info("Unified worker started", {
   braveSearch: !!process.env.BRAVE_API_KEY
 });
 pollLoop().then(() => {
-  log13.info("Worker stopped");
+  log16.info("Worker stopped");
   process.exit(0);
 }).catch((err) => {
-  log13.fatal("Fatal error", { error: err });
+  log16.fatal("Fatal error", { error: err });
   process.exit(1);
 });
 //# sourceMappingURL=index.js.map

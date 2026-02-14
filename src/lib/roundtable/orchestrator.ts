@@ -22,6 +22,11 @@ import {
 import { deriveVoiceModifiers } from '../ops/voice-evolution';
 import { loadPrimeDirective } from '../ops/prime-directive';
 import { getAgentTools } from '../tools';
+import {
+    postConversationStart,
+    postConversationTurn,
+    postConversationSummary,
+} from '@/lib/discord';
 import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'orchestrator' });
@@ -244,6 +249,14 @@ export async function orchestrateConversation(
         WHERE id = ${session.id}
     `;
 
+    // Create Discord thread for this conversation
+    let discordThreadId: string | null = null;
+    try {
+        discordThreadId = await postConversationStart(session);
+    } catch (err) {
+        log.warn('Discord thread creation failed', { error: (err as Error).message, sessionId: session.id });
+    }
+
     // Emit session start event
     await emitEvent({
         agent_id: 'system',
@@ -377,6 +390,11 @@ export async function orchestrateConversation(
             },
         });
 
+        // Post turn to Discord thread (fire-and-forget)
+        if (discordThreadId) {
+            postConversationTurn(session, entry, discordThreadId).catch(() => {});
+        }
+
         // Natural delay between turns (3-8 seconds)
         if (delayBetweenTurns && turn < maxTurns - 1) {
             const delay = 3000 + Math.random() * 5000;
@@ -426,6 +444,11 @@ export async function orchestrateConversation(
             ...(abortReason ? { abortReason } : {}),
         },
     });
+
+    // Post summary to Discord thread (fire-and-forget)
+    if (discordThreadId) {
+        postConversationSummary(session, history, finalStatus, discordThreadId, abortReason ?? undefined).catch(() => {});
+    }
 
     // Distill memories from the conversation (best-effort, even if aborted)
     if (history.length >= 3) {
