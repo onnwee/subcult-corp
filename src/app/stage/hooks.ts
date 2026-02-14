@@ -1005,6 +1005,93 @@ export function useDreams(filters?: {
     return { dreams, loading, error, refetch };
 }
 
+// ─── useAgentProposals — fetch + poll agent design proposals ───
+
+export type AgentProposalStatus =
+    | 'proposed'
+    | 'voting'
+    | 'approved'
+    | 'rejected'
+    | 'spawned';
+
+export interface AgentProposalVoteSummary {
+    approvals: number;
+    rejections: number;
+    total: number;
+}
+
+export interface AgentProposalPersonality {
+    tone: string;
+    traits: string[];
+    speaking_style: string;
+    emoji?: string;
+}
+
+export interface AgentProposalEntry {
+    id: string;
+    proposed_by: string;
+    agent_name: string;
+    agent_role: string;
+    personality: AgentProposalPersonality;
+    skills: string[];
+    rationale: string;
+    status: AgentProposalStatus;
+    votes: Record<string, { vote: string; reasoning: string }>;
+    human_approved: boolean | null;
+    vote_summary: AgentProposalVoteSummary;
+    created_at: string;
+    decided_at: string | null;
+    spawned_at: string | null;
+}
+
+export function useAgentProposals(filters?: {
+    status?: AgentProposalStatus;
+    proposedBy?: string;
+    limit?: number;
+}) {
+    const [proposals, setProposals] = useState<AgentProposalEntry[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [refreshKey, setRefreshKey] = useState(0);
+
+    const status = filters?.status;
+    const proposedBy = filters?.proposedBy;
+    const limit = filters?.limit ?? 50;
+
+    const fetchProposals = useCallback(async () => {
+        try {
+            const params = new URLSearchParams();
+            if (status) params.set('status', status);
+            if (proposedBy) params.set('proposed_by', proposedBy);
+            params.set('limit', String(limit));
+
+            const data = await fetchJson<{
+                proposals: AgentProposalEntry[];
+            }>(`/api/ops/agent-proposals?${params}`);
+            setProposals(data.proposals);
+            setError(null);
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setLoading(false);
+        }
+    }, [status, proposedBy, limit]);
+
+    useEffect(() => {
+        setLoading(true);
+        fetchProposals();
+    }, [fetchProposals, refreshKey]);
+
+    // Poll every 30 seconds
+    useInterval(() => {
+        fetchProposals();
+    }, 30000);
+
+    const refetch = useCallback(() => setRefreshKey(k => k + 1), []);
+
+    return { proposals, loading, error, refetch };
+}
+
 // ─── useInterval — for animations and polling ───
 
 // ─── useRebellionState — fetch active rebellion states ───
@@ -1046,6 +1133,114 @@ export function useRebellionState() {
     );
 
     return { rebels, rebellingAgentIds, loading };
+}
+
+// ─── useArchaeology — fetch memory archaeology digs and findings ───
+
+export interface ArchaeologyDigEntry {
+    dig_id: string;
+    agent_id: string;
+    finding_count: number;
+    finding_types: string[];
+    started_at: string;
+}
+
+export interface ArchaeologyFinding {
+    id: string;
+    dig_id: string;
+    agent_id: string;
+    finding_type: string;
+    title: string;
+    description: string;
+    evidence: Array<{ memory_id: string; excerpt: string; relevance: string }>;
+    confidence: number;
+    time_span: { from: string; to: string } | null;
+    related_agents: string[];
+    metadata: Record<string, unknown>;
+    created_at: string;
+}
+
+export function useArchaeology(options?: { limit?: number }) {
+    const [digs, setDigs] = useState<ArchaeologyDigEntry[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [refreshKey, setRefreshKey] = useState(0);
+    const [triggerLoading, setTriggerLoading] = useState(false);
+
+    const limit = options?.limit ?? 20;
+
+    const fetchDigs = useCallback(async () => {
+        try {
+            const data = await fetchJson<{ digs: ArchaeologyDigEntry[] }>(
+                `/api/ops/archaeology?limit=${limit}`,
+            );
+            setDigs(data.digs);
+            setError(null);
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setLoading(false);
+        }
+    }, [limit]);
+
+    useEffect(() => {
+        setLoading(true);
+        fetchDigs();
+    }, [fetchDigs, refreshKey]);
+
+    // Poll every 60 seconds (digs are infrequent)
+    useInterval(() => {
+        fetchDigs();
+    }, 60000);
+
+    const fetchFindings = useCallback(
+        async (digId: string): Promise<ArchaeologyFinding[]> => {
+            const data = await fetchJson<{ findings: ArchaeologyFinding[] }>(
+                `/api/ops/archaeology?dig_id=${digId}`,
+            );
+            return data.findings;
+        },
+        [],
+    );
+
+    const fetchFindingsForMemory = useCallback(
+        async (memoryId: string): Promise<ArchaeologyFinding[]> => {
+            const data = await fetchJson<{ findings: ArchaeologyFinding[] }>(
+                `/api/ops/archaeology?memory_id=${memoryId}`,
+            );
+            return data.findings;
+        },
+        [],
+    );
+
+    const triggerDig = useCallback(async (agentId?: string) => {
+        setTriggerLoading(true);
+        try {
+            await fetch('/api/ops/archaeology', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ agent_id: agentId, max_memories: 100 }),
+            });
+            setRefreshKey(k => k + 1);
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setTriggerLoading(false);
+        }
+    }, []);
+
+    const refetch = useCallback(() => setRefreshKey(k => k + 1), []);
+
+    return {
+        digs,
+        loading,
+        error,
+        triggerLoading,
+        fetchFindings,
+        fetchFindingsForMemory,
+        triggerDig,
+        refetch,
+    };
 }
 
 // ─── useInterval — setinterval with saved callback ───

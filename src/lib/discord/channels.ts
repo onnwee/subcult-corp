@@ -36,6 +36,7 @@ const FORMAT_CHANNEL_MAP: Record<ConversationFormat, DiscordChannelName> = {
     brainstorm: 'brainstorm',
     writing_room: 'drafts',
     watercooler: 'watercooler',
+    agent_design: 'roundtable',
 };
 
 /** Build a webhook URL from separate id + token columns */
@@ -61,12 +62,14 @@ export async function getWebhookUrl(
 
     // DB lookup — existing schema uses webhook_id + webhook_token (not webhook_url)
     const [row] = await sql<
-        [{
-            discord_channel_id: string;
-            webhook_id: string | null;
-            webhook_token: string | null;
-            enabled: boolean;
-        }]
+        [
+            {
+                discord_channel_id: string;
+                webhook_id: string | null;
+                webhook_token: string | null;
+                enabled: boolean;
+            },
+        ]
     >`
         SELECT discord_channel_id, webhook_id, webhook_token, enabled
         FROM ops_discord_channels

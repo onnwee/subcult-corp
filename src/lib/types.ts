@@ -110,7 +110,8 @@ export type StepKind =
     | 'tag_memory'
     | 'escalate_risk'
     | 'convene_roundtable'
-    | 'propose_workflow';
+    | 'propose_workflow'
+    | 'memory_archaeology';
 
 export type StepStatus =
     | 'queued'
@@ -251,7 +252,8 @@ export type ConversationFormat =
     | 'reframe'
     | 'writing_room'
     | 'content_review'
-    | 'watercooler';
+    | 'watercooler'
+    | 'agent_design';
 export type SessionStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 export interface RoundtableVoice {

@@ -21,7 +21,9 @@ export type ViewMode =
     | 'relationships'
     | 'content'
     | 'governance'
-    | 'dreams';
+    | 'dreams'
+    | 'agent-designer'
+    | 'archaeology';
 
 function ConnectionIndicator({ status }: { status: ConnectionStatus }) {
     const config: Record<
@@ -123,6 +125,8 @@ export function StageHeader({
         { key: 'content', label: 'Content', icon: '📝' },
         { key: 'governance', label: 'Governance', icon: '⚖️' },
         { key: 'dreams', label: 'Dreams', icon: '💭' },
+        { key: 'agent-designer', label: 'Agents', icon: '🧬' },
+        { key: 'archaeology', label: 'Archaeology', icon: '🏛️' },
     ];
 
     return (

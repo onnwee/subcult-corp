@@ -21,7 +21,8 @@ export type FormatKey =
     | 'reframe'
     | 'writing_room'
     | 'content_review'
-    | 'watercooler';
+    | 'watercooler'
+    | 'agent_design';
 
 export type CoordinatorRole =
     | 'praxis' // action/commitment lead
@@ -253,5 +254,18 @@ export const FORMATS: Record<FormatKey, ConversationFormat> = {
             'Review public-facing content for risk, clarity, and alignment.',
         requires: { subrosa: true },
         optional: { chora: true, mux: true, praxis: true },
+    },
+
+    agent_design: {
+        minAgents: 3,
+        maxAgents: 6,
+        minTurns: 6,
+        maxTurns: 14,
+        temperature: 0.75,
+        coordinatorRole: 'thaum',
+        purpose:
+            'Debate and vote on proposed new agents for the collective — evaluate design, necessity, and personality fit.',
+        requires: { thaum: true },
+        optional: { chora: true, subrosa: true, praxis: true, mux: true },
     },
 };

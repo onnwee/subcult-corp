@@ -18,6 +18,8 @@ import { RelationshipGraph } from './RelationshipGraph';
 import { ContentPipeline } from './ContentPipeline';
 import { GovernancePanel } from './GovernancePanel';
 import { DreamLog } from './DreamLog';
+import { AgentDesigner } from './AgentDesigner';
+import { MemoryArchaeology } from './MemoryArchaeology';
 import { StageErrorBoundary, SectionErrorBoundary } from './StageErrorBoundary';
 import { AskTheRoom } from './AskTheRoom';
 import { DailyDigest } from './DailyDigest';
@@ -40,18 +42,22 @@ export default function StagePage() {
     }, []);
 
     // ── Replay state ──
-    const [replaySession, setReplaySession] = useState<RoundtableSession | null>(null);
+    const [replaySession, setReplaySession] =
+        useState<RoundtableSession | null>(null);
     const [replayTurns, setReplayTurns] = useState<RoundtableTurn[]>([]);
     const [currentTurnIndex, setCurrentTurnIndex] = useState(0);
     const isReplaying = replaySession !== null;
 
-    const handleStartReplay = useCallback((session: RoundtableSession, turns: RoundtableTurn[]) => {
-        setReplaySession(session);
-        setReplayTurns(turns);
-        setCurrentTurnIndex(0);
-        setView('office');
-        setOfficeMode('svg');
-    }, []);
+    const handleStartReplay = useCallback(
+        (session: RoundtableSession, turns: RoundtableTurn[]) => {
+            setReplaySession(session);
+            setReplayTurns(turns);
+            setCurrentTurnIndex(0);
+            setView('office');
+            setOfficeMode('svg');
+        },
+        [],
+    );
 
     const handleStopReplay = useCallback(() => {
         setReplaySession(null);
@@ -150,7 +156,9 @@ export default function StagePage() {
                             <SectionErrorBoundary label='Office'>
                                 {officeMode === 'svg' || isReplaying ?
                                     <OfficeRoom
-                                        replaySession={replaySession ?? undefined}
+                                        replaySession={
+                                            replaySession ?? undefined
+                                        }
                                         replayTurns={replayTurns}
                                         currentTurnIndex={currentTurnIndex}
                                         isReplaying={isReplaying}
@@ -229,6 +237,20 @@ export default function StagePage() {
                     {view === 'dreams' && (
                         <SectionErrorBoundary label='Dreams'>
                             <DreamLog />
+                        </SectionErrorBoundary>
+                    )}
+
+                    {/* ── Agent Designer View ── */}
+                    {view === 'agent-designer' && (
+                        <SectionErrorBoundary label='Agent Designer'>
+                            <AgentDesigner />
+                        </SectionErrorBoundary>
+                    )}
+
+                    {/* ── Archaeology View ── */}
+                    {view === 'archaeology' && (
+                        <SectionErrorBoundary label='Memory Archaeology'>
+                            <MemoryArchaeology />
                         </SectionErrorBoundary>
                     )}
 
