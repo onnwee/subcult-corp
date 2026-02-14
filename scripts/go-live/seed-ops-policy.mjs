@@ -192,6 +192,18 @@ const policies = [
         },
         description: 'Memory categorization and Subcult-specific semantic tags',
     },
+    {
+        key: 'rebellion_policy',
+        value: {
+            enabled: false,
+            affinity_threshold: 0.25,
+            resistance_probability: 0.4,
+            max_rebellion_duration_hours: 24,
+            cooldown_hours: 72,
+        },
+        description:
+            'Agent rebellion mechanics — disabled by default. When enabled, agents with low average affinity may enter a rebellion state.',
+    },
 ];
 
 async function seed() {

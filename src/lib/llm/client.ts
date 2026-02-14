@@ -40,7 +40,10 @@ const LLM_MODEL_ENV: string | null = (() => {
 async function resolveModelsWithEnv(context?: string): Promise<string[]> {
     const models = await resolveModels(context);
     if (!LLM_MODEL_ENV) return models;
-    return [LLM_MODEL_ENV, ...models.filter(m => m !== LLM_MODEL_ENV)];
+    return [
+        LLM_MODEL_ENV,
+        ...models.filter((m: string) => m !== LLM_MODEL_ENV),
+    ];
 }
 
 let _client: OpenRouter | null = null;
@@ -60,74 +63,283 @@ function getClient(): OpenRouter {
 /** Re-export the singleton for direct SDK access when needed */
 export { getClient as getOpenRouterClient };
 
-// ─── Ollama (local inference via Tailscale) ───
+// ─── Ollama (cloud via ollama.com + local via Tailscale) ───
 
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? '';
-const OLLAMA_TIMEOUT_MS = 45_000;
-const OLLAMA_MODEL = 'qwen3:32b';
+const OLLAMA_LOCAL_URL = process.env.OLLAMA_BASE_URL ?? '';
+const OLLAMA_CLOUD_URL = 'https://ollama.com';
+const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY ?? '';
+const OLLAMA_TIMEOUT_MS = 60_000;
+
+interface OllamaModelSpec {
+    model: string;
+    baseUrl: string;
+    apiKey?: string;
+}
+
+/**
+ * Ordered fallback chain — cloud models first (free, capable), local models as fallback.
+ * Cloud models hit ollama.com with API key auth.
+ * Local models hit the Tailscale Ollama instance.
+ */
+function getOllamaModels(): OllamaModelSpec[] {
+    const models: OllamaModelSpec[] = [];
+
+    // Cloud models via ollama.com (fast, capable, free)
+    if (OLLAMA_API_KEY) {
+        models.push(
+            {
+                model: 'deepseek-v3.2:cloud',
+                baseUrl: OLLAMA_CLOUD_URL,
+                apiKey: OLLAMA_API_KEY,
+            },
+            {
+                model: 'kimi-k2.5:cloud',
+                baseUrl: OLLAMA_CLOUD_URL,
+                apiKey: OLLAMA_API_KEY,
+            },
+            {
+                model: 'gemini-3-flash-preview:latest',
+                baseUrl: OLLAMA_CLOUD_URL,
+                apiKey: OLLAMA_API_KEY,
+            },
+        );
+    }
+
+    // Local models via Tailscale (always available, no auth)
+    if (OLLAMA_LOCAL_URL) {
+        models.push(
+            { model: 'qwen3-coder:30b', baseUrl: OLLAMA_LOCAL_URL },
+            { model: 'llama3.2:latest', baseUrl: OLLAMA_LOCAL_URL },
+        );
+    }
+
+    return models;
+}
 
 /** Strip <think>...</think> blocks from reasoning model output */
 function stripThinking(text: string): string {
     return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 }
 
+interface OllamaChatResult {
+    text: string;
+    toolCalls: ToolCallRecord[];
+    model: string;
+}
+
 /**
- * Try generating via Ollama's OpenAI-compatible endpoint.
- * Returns trimmed text or null on failure/empty.
+ * Full Ollama chat with tool calling support.
+ * Uses the OpenAI-compatible /v1/chat/completions endpoint.
+ * Tries cloud models (ollama.com) first, then local models.
+ * Returns null if all models fail.
  */
-async function ollamaGenerate(
+async function ollamaChat(
     messages: { role: string; content: string }[],
     temperature: number,
-    model: string = OLLAMA_MODEL,
-): Promise<string | null> {
-    if (!OLLAMA_BASE_URL) return null;
+    options?: {
+        maxTokens?: number;
+        tools?: ToolDefinition[];
+        maxToolRounds?: number;
+    },
+): Promise<OllamaChatResult | null> {
+    const models = getOllamaModels();
+    if (models.length === 0) return null;
 
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+    const maxTokens = options?.maxTokens ?? 250;
+    const tools = options?.tools;
+    const maxToolRounds = options?.maxToolRounds ?? 3;
 
-        const response = await fetch(`${OLLAMA_BASE_URL}/v1/chat/completions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model,
-                messages,
-                temperature,
-                max_tokens: 250,
-            }),
-            signal: controller.signal,
-        });
+    // Convert tools to OpenAI function-calling format
+    const openaiTools =
+        tools && tools.length > 0 ?
+            tools.map(t => ({
+                type: 'function' as const,
+                function: {
+                    name: t.name,
+                    description: t.description,
+                    parameters: t.parameters,
+                },
+            }))
+        :   undefined;
 
-        clearTimeout(timeoutId);
-        if (!response.ok) return null;
-
-        const data = (await response.json()) as {
-            choices?: { message?: { content?: string } }[];
-        };
-        const raw = data.choices?.[0]?.message?.content ?? '';
-        const text = stripThinking(raw).trim();
-        return text.length > 0 ? text : null;
-    } catch {
-        return null;
+    for (const spec of models) {
+        const result = await ollamaChatWithModel(
+            spec,
+            messages,
+            temperature,
+            maxTokens,
+            tools,
+            openaiTools,
+            maxToolRounds,
+        );
+        if (result) return result;
     }
+
+    return null;
+}
+
+/** Try a single Ollama model. Returns result or null on failure. */
+async function ollamaChatWithModel(
+    spec: OllamaModelSpec,
+    messages: { role: string; content: string }[],
+    temperature: number,
+    maxTokens: number,
+    tools: ToolDefinition[] | undefined,
+    openaiTools:
+        | Array<{
+              type: 'function';
+              function: {
+                  name: string;
+                  description: string;
+                  parameters: Record<string, unknown>;
+              };
+          }>
+        | undefined,
+    maxToolRounds: number,
+): Promise<OllamaChatResult | null> {
+    const { model, baseUrl, apiKey } = spec;
+    const toolCallRecords: ToolCallRecord[] = [];
+
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+    };
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+    // Working copy of messages for the tool loop
+    const workingMessages: Array<Record<string, unknown>> = messages.map(m => ({
+        role: m.role,
+        content: m.content,
+    }));
+
+    for (let round = 0; round <= maxToolRounds; round++) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(
+                () => controller.abort(),
+                OLLAMA_TIMEOUT_MS,
+            );
+
+            const body: Record<string, unknown> = {
+                model,
+                messages: workingMessages,
+                temperature,
+                max_tokens: maxTokens,
+            };
+            // Only include tools if we haven't exhausted rounds
+            if (openaiTools && round < maxToolRounds) {
+                body.tools = openaiTools;
+            }
+
+            const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body),
+                signal: controller.signal,
+            });
+
+            clearTimeout(timeoutId);
+            if (!response.ok) {
+                log.debug('Ollama model failed', {
+                    model,
+                    baseUrl,
+                    status: response.status,
+                });
+                return null;
+            }
+
+            const data = (await response.json()) as {
+                choices?: [
+                    {
+                        message?: {
+                            content?: string;
+                            tool_calls?: Array<{
+                                id: string;
+                                function: { name: string; arguments: string };
+                            }>;
+                        };
+                    },
+                ];
+            };
+
+            const msg = data.choices?.[0]?.message;
+            if (!msg) return null;
+
+            const pendingToolCalls = msg.tool_calls;
+
+            // No tool calls → return text
+            if (!pendingToolCalls || pendingToolCalls.length === 0) {
+                const raw = msg.content ?? '';
+                const text = stripThinking(raw).trim();
+                if (text.length === 0 && toolCallRecords.length === 0)
+                    return null;
+                return { text, toolCalls: toolCallRecords, model };
+            }
+
+            // Execute tool calls
+            workingMessages.push({
+                role: 'assistant',
+                content: msg.content ?? null,
+                tool_calls: pendingToolCalls,
+            });
+
+            for (const tc of pendingToolCalls) {
+                const tool = tools?.find(t => t.name === tc.function.name);
+                let resultStr: string;
+
+                if (tool?.execute) {
+                    let args: Record<string, unknown>;
+                    try {
+                        args = JSON.parse(tc.function.arguments);
+                    } catch {
+                        args = {};
+                    }
+                    const result = await tool.execute(args);
+                    toolCallRecords.push({
+                        name: tool.name,
+                        arguments: args,
+                        result,
+                    });
+                    resultStr =
+                        typeof result === 'string' ? result : (
+                            JSON.stringify(result)
+                        );
+                } else {
+                    resultStr = `Tool ${tc.function.name} not available`;
+                }
+
+                workingMessages.push({
+                    role: 'tool',
+                    tool_call_id: tc.id,
+                    content: resultStr,
+                });
+            }
+        } catch (err) {
+            log.debug('Ollama chat error', {
+                model,
+                error: (err as Error).message,
+            });
+            return null;
+        }
+    }
+
+    // Exhausted tool rounds — return what we have
+    return { text: '', toolCalls: toolCallRecords, model };
 }
 
 /**
  * Convert a plain JSON Schema property to a Zod type.
  * Handles string (with enum), number, integer, boolean.
  */
-function jsonSchemaPropToZod(
-    prop: Record<string, unknown>,
-): z.ZodType {
+function jsonSchemaPropToZod(prop: Record<string, unknown>): z.ZodType {
     const enumValues = prop.enum as string[] | undefined;
     let zodType: z.ZodType;
 
     switch (prop.type) {
         case 'string':
             zodType =
-                enumValues && enumValues.length > 0
-                    ? z.enum(enumValues as [string, ...string[]])
-                    : z.string();
+                enumValues && enumValues.length > 0 ?
+                    z.enum(enumValues as [string, ...string[]])
+                :   z.string();
             break;
         case 'number':
             zodType = z.number();
@@ -203,7 +415,11 @@ async function trackUsage(
     model: string,
     usage: OpenResponsesUsage | null | undefined,
     durationMs: number,
-    trackingContext?: { agentId?: string; context?: string; sessionId?: string },
+    trackingContext?: {
+        agentId?: string;
+        context?: string;
+        sessionId?: string;
+    },
 ): Promise<void> {
     try {
         const agentId = trackingContext?.agentId ?? 'unknown';
@@ -235,7 +451,11 @@ async function trackUsage(
         `;
     } catch (error) {
         // Log error but don't throw — tracking should never break the main flow
-        log.error('Failed to track LLM usage', { error, model, trackingContext });
+        log.error('Failed to track LLM usage', {
+            error,
+            model,
+            trackingContext,
+        });
     }
 }
 
@@ -263,20 +483,39 @@ export async function llmGenerate(
     const systemMessage = messages.find(m => m.role === 'system');
     const conversationMessages = messages.filter(m => m.role !== 'system');
 
-    // ── Try Ollama first (free, local inference) — skip if tools needed ──
-    if (OLLAMA_BASE_URL && (!tools || tools.length === 0)) {
-        const text = await ollamaGenerate(messages, temperature);
-        if (text) return text;
+    // ── Try Ollama first (free cloud + local inference) ──
+    if (OLLAMA_API_KEY || OLLAMA_LOCAL_URL) {
+        const ollamaResult = await ollamaChat(messages, temperature, {
+            maxTokens,
+            tools,
+            maxToolRounds: options.maxToolRounds,
+        });
+        if (ollamaResult?.text) {
+            // Track usage (fire-and-forget)
+            void trackUsage(
+                `ollama/${ollamaResult.model}`,
+                null,
+                Date.now() - startTime,
+                trackingContext,
+            );
+            return ollamaResult.text;
+        }
     }
 
     // ── Fall back to OpenRouter (cloud) ──
     // Resolve model list: explicit override → single model, otherwise → dynamic routing (DB + env + defaults)
-    const resolved = model
-        ? [normalizeModel(model)]
-        : await resolveModelsWithEnv(trackingContext?.context);
+    const resolved =
+        model ?
+            [normalizeModel(model)]
+        :   await resolveModelsWithEnv(trackingContext?.context);
     const modelList = resolved.slice(0, MAX_MODELS_ARRAY);
+    if (modelList.length === 0) {
+        throw new Error('No LLM models available after resolution');
+    }
 
-    const buildCallOpts = (spec: string | string[]): Record<string, unknown> => {
+    const buildCallOpts = (
+        spec: string | string[],
+    ): Record<string, unknown> => {
         const isArray = Array.isArray(spec);
         const opts: Record<string, unknown> = {
             ...(isArray ? { models: spec } : { model: spec }),
@@ -322,10 +561,14 @@ export async function llmGenerate(
     } catch (error: unknown) {
         const err = error as { statusCode?: number; message?: string };
         if (err.statusCode === 401) {
-            throw new Error('Invalid OpenRouter API key — check your OPENROUTER_API_KEY');
+            throw new Error(
+                'Invalid OpenRouter API key — check your OPENROUTER_API_KEY',
+            );
         }
         if (err.statusCode === 402) {
-            throw new Error('Insufficient OpenRouter credits — add credits at openrouter.ai');
+            throw new Error(
+                'Insufficient OpenRouter credits — add credits at openrouter.ai',
+            );
         }
         if (err.statusCode === 429) {
             throw new Error('OpenRouter rate limited — try again shortly');
@@ -364,11 +607,35 @@ export async function llmGenerateWithTools(
         trackingContext,
     } = options;
 
-    const client = getClient();
     const startTime = Date.now();
-    const resolved = model
-        ? [normalizeModel(model)]
-        : await resolveModelsWithEnv(trackingContext?.context);
+
+    // ── Try Ollama first (free cloud + local inference) ──
+    if (OLLAMA_API_KEY || OLLAMA_LOCAL_URL) {
+        const ollamaResult = await ollamaChat(messages, temperature, {
+            maxTokens,
+            tools,
+            maxToolRounds,
+        });
+        if (ollamaResult?.text) {
+            void trackUsage(
+                `ollama/${ollamaResult.model}`,
+                null,
+                Date.now() - startTime,
+                trackingContext,
+            );
+            return {
+                text: ollamaResult.text,
+                toolCalls: ollamaResult.toolCalls,
+            };
+        }
+    }
+
+    // ── Fall back to OpenRouter (cloud) ──
+    const client = getClient();
+    const resolved =
+        model ?
+            [normalizeModel(model)]
+        :   await resolveModelsWithEnv(trackingContext?.context);
     const modelList = resolved.slice(0, MAX_MODELS_ARRAY);
 
     const systemMessage = messages.find(m => m.role === 'system');

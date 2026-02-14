@@ -33,6 +33,16 @@ const triggers = [
         enabled: true,
     },
 
+    // ─── Content Pipeline: Auto-Review ───
+    {
+        name: 'Content draft auto-review (Subrosa)',
+        trigger_event: 'content_draft_created',
+        conditions: { lookback_minutes: 30 },
+        action_config: { target_agent: 'subrosa', action: 'content_review' },
+        cooldown_minutes: 10,
+        enabled: true,
+    },
+
     // ─── Subrosa: Risk Assessment ───
     {
         name: 'Public content risk check (Subrosa)',
@@ -115,6 +125,33 @@ const triggers = [
             action: 'distill_and_tag',
         },
         cooldown_minutes: 1440,
+        enabled: true,
+    },
+
+    // ─── Governance ───
+    {
+        name: 'Governance debate (All agents)',
+        trigger_event: 'governance_proposal_created',
+        conditions: { lookback_minutes: 60 },
+        action_config: {
+            target_agent: 'primus',
+            action: 'convene_governance_debate',
+        },
+        cooldown_minutes: 30,
+        enabled: true,
+    },
+
+    // ─── Memory Archaeology (Phase 15) ───
+    {
+        name: 'Memory archaeology dig (Chora)',
+        trigger_event: 'memory_archaeology_due',
+        conditions: { min_days_between_digs: 7 },
+        action_config: {
+            target_agent: 'chora',
+            action: 'memory_archaeology',
+            max_memories: 100,
+        },
+        cooldown_minutes: 10080, // 7 days
         enabled: true,
     },
 ];

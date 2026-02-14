@@ -4,15 +4,22 @@
 import { useState, Suspense, useCallback } from 'react';
 import { StageHeader, type ViewMode } from './StageHeader';
 import type { ConnectionStatus } from './hooks';
+import type { RoundtableSession, RoundtableTurn } from '@/lib/types';
 import { MissionsList } from './MissionsList';
 import { MissionPlayback } from './MissionPlayback';
 import { Office3DScene } from './office3d/Office3DScene';
 import { OfficeRoom } from './OfficeRoom';
+import { ReplayController } from './ReplayController';
 import { EventLogFeed } from './EventLogFeed';
 import { SystemLogs } from './SystemLogs';
 import { CostTracker } from './CostTracker';
 import { MemoryExplorer } from './MemoryExplorer';
 import { RelationshipGraph } from './RelationshipGraph';
+import { ContentPipeline } from './ContentPipeline';
+import { GovernancePanel } from './GovernancePanel';
+import { DreamLog } from './DreamLog';
+import { AgentDesigner } from './AgentDesigner';
+import { MemoryArchaeology } from './MemoryArchaeology';
 import { StageErrorBoundary, SectionErrorBoundary } from './StageErrorBoundary';
 import { AskTheRoom } from './AskTheRoom';
 import { DailyDigest } from './DailyDigest';
@@ -32,6 +39,30 @@ export default function StagePage() {
         useState<ConnectionStatus>('connected');
     const handleConnectionStatus = useCallback((status: ConnectionStatus) => {
         setConnectionStatus(status);
+    }, []);
+
+    // ── Replay state ──
+    const [replaySession, setReplaySession] =
+        useState<RoundtableSession | null>(null);
+    const [replayTurns, setReplayTurns] = useState<RoundtableTurn[]>([]);
+    const [currentTurnIndex, setCurrentTurnIndex] = useState(0);
+    const isReplaying = replaySession !== null;
+
+    const handleStartReplay = useCallback(
+        (session: RoundtableSession, turns: RoundtableTurn[]) => {
+            setReplaySession(session);
+            setReplayTurns(turns);
+            setCurrentTurnIndex(0);
+            setView('office');
+            setOfficeMode('svg');
+        },
+        [],
+    );
+
+    const handleStopReplay = useCallback(() => {
+        setReplaySession(null);
+        setReplayTurns([]);
+        setCurrentTurnIndex(0);
     }, []);
 
     return (
@@ -68,6 +99,7 @@ export default function StagePage() {
                                         onConnectionStatusAction={
                                             handleConnectionStatus
                                         }
+                                        onStartReplay={handleStartReplay}
                                     />
                                 </Suspense>
                             </SectionErrorBoundary>
@@ -88,48 +120,69 @@ export default function StagePage() {
                     {/* ── Office View (Three.js 2.5D) ── */}
                     {view === 'office' && (
                         <div className='space-y-4'>
-                            {/* SVG / 3D toggle */}
-                            <div className='flex items-center gap-2'>
-                                <div className='flex rounded-lg bg-zinc-800/50 p-0.5 border border-zinc-700/50'>
-                                    <button
-                                        onClick={() => setOfficeMode('svg')}
-                                        className={`px-3 py-1 text-[11px] font-medium rounded-md transition-colors ${
-                                            officeMode === 'svg' ?
-                                                'bg-zinc-700 text-zinc-100'
-                                            :   'text-zinc-500 hover:text-zinc-300'
-                                        }`}
-                                    >
-                                        SVG
-                                    </button>
-                                    <button
-                                        onClick={() => setOfficeMode('3d')}
-                                        className={`px-3 py-1 text-[11px] font-medium rounded-md transition-colors ${
-                                            officeMode === '3d' ?
-                                                'bg-zinc-700 text-zinc-100'
-                                            :   'text-zinc-500 hover:text-zinc-300'
-                                        }`}
-                                    >
-                                        3D
-                                    </button>
+                            {/* SVG / 3D toggle (hidden during replay) */}
+                            {!isReplaying && (
+                                <div className='flex items-center gap-2'>
+                                    <div className='flex rounded-lg bg-zinc-800/50 p-0.5 border border-zinc-700/50'>
+                                        <button
+                                            onClick={() => setOfficeMode('svg')}
+                                            className={`px-3 py-1 text-[11px] font-medium rounded-md transition-colors ${
+                                                officeMode === 'svg' ?
+                                                    'bg-zinc-700 text-zinc-100'
+                                                :   'text-zinc-500 hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            SVG
+                                        </button>
+                                        <button
+                                            onClick={() => setOfficeMode('3d')}
+                                            className={`px-3 py-1 text-[11px] font-medium rounded-md transition-colors ${
+                                                officeMode === '3d' ?
+                                                    'bg-zinc-700 text-zinc-100'
+                                                :   'text-zinc-500 hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            3D
+                                        </button>
+                                    </div>
+                                    <span className='text-[10px] text-zinc-600'>
+                                        {officeMode === 'svg' ?
+                                            'Pixel art (SVG)'
+                                        :   'Three.js (experimental)'}
+                                    </span>
                                 </div>
-                                <span className='text-[10px] text-zinc-600'>
-                                    {officeMode === 'svg' ?
-                                        'Pixel art (SVG)'
-                                    :   'Three.js (experimental)'}
-                                </span>
-                            </div>
+                            )}
 
                             <SectionErrorBoundary label='Office'>
-                                {officeMode === 'svg' ?
-                                    <OfficeRoom />
+                                {officeMode === 'svg' || isReplaying ?
+                                    <OfficeRoom
+                                        replaySession={
+                                            replaySession ?? undefined
+                                        }
+                                        replayTurns={replayTurns}
+                                        currentTurnIndex={currentTurnIndex}
+                                        isReplaying={isReplaying}
+                                    />
                                 :   <Office3DScene />}
                             </SectionErrorBoundary>
+
+                            {/* Replay controller overlay */}
+                            {isReplaying && replayTurns.length > 0 && (
+                                <ReplayController
+                                    turns={replayTurns}
+                                    currentTurnIndex={currentTurnIndex}
+                                    onTurnChange={setCurrentTurnIndex}
+                                    onStop={handleStopReplay}
+                                />
+                            )}
+
                             <SectionErrorBoundary label='Event Log'>
                                 <Suspense fallback={<EventLogFeedSkeleton />}>
                                     <EventLogFeed
                                         onConnectionStatusAction={
                                             handleConnectionStatus
                                         }
+                                        onStartReplay={handleStartReplay}
                                     />
                                 </Suspense>
                             </SectionErrorBoundary>
@@ -163,6 +216,41 @@ export default function StagePage() {
                     {view === 'relationships' && (
                         <SectionErrorBoundary label='Relationships'>
                             <RelationshipGraph />
+                        </SectionErrorBoundary>
+                    )}
+
+                    {/* ── Content View ── */}
+                    {view === 'content' && (
+                        <SectionErrorBoundary label='Content Pipeline'>
+                            <ContentPipeline />
+                        </SectionErrorBoundary>
+                    )}
+
+                    {/* ── Governance View ── */}
+                    {view === 'governance' && (
+                        <SectionErrorBoundary label='Governance'>
+                            <GovernancePanel />
+                        </SectionErrorBoundary>
+                    )}
+
+                    {/* ── Dreams View ── */}
+                    {view === 'dreams' && (
+                        <SectionErrorBoundary label='Dreams'>
+                            <DreamLog />
+                        </SectionErrorBoundary>
+                    )}
+
+                    {/* ── Agent Designer View ── */}
+                    {view === 'agent-designer' && (
+                        <SectionErrorBoundary label='Agent Designer'>
+                            <AgentDesigner />
+                        </SectionErrorBoundary>
+                    )}
+
+                    {/* ── Archaeology View ── */}
+                    {view === 'archaeology' && (
+                        <SectionErrorBoundary label='Memory Archaeology'>
+                            <MemoryArchaeology />
                         </SectionErrorBoundary>
                     )}
 

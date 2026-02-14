@@ -15,7 +15,11 @@ export const FORMATS: Record<ConversationFormat, FormatConfig> = {
         maxTurns: 14,
         temperature: 0.5,
         requires: ['primus', 'chora', 'praxis'],
-        artifact: { type: 'briefing', outputDir: 'output/briefings', synthesizer: 'mux' },
+        artifact: {
+            type: 'briefing',
+            outputDir: 'output/briefings',
+            synthesizer: 'mux',
+        },
     },
     checkin: {
         coordinatorRole: 'primus',
@@ -51,7 +55,11 @@ export const FORMATS: Record<ConversationFormat, FormatConfig> = {
         requires: ['chora'],
         optional: ['thaum', 'subrosa'],
         defaultModel: 'moonshotai/kimi-k2.5',
-        artifact: { type: 'report', outputDir: 'output/reports', synthesizer: 'chora' },
+        artifact: {
+            type: 'report',
+            outputDir: 'output/reports',
+            synthesizer: 'chora',
+        },
     },
     risk_review: {
         coordinatorRole: 'subrosa',
@@ -65,7 +73,11 @@ export const FORMATS: Record<ConversationFormat, FormatConfig> = {
         requires: ['subrosa'],
         optional: ['chora', 'praxis'],
         defaultModel: 'moonshotai/kimi-k2.5',
-        artifact: { type: 'review', outputDir: 'output/reviews', synthesizer: 'subrosa' },
+        artifact: {
+            type: 'review',
+            outputDir: 'output/reviews',
+            synthesizer: 'subrosa',
+        },
     },
     strategy: {
         coordinatorRole: 'primus',
@@ -78,7 +90,11 @@ export const FORMATS: Record<ConversationFormat, FormatConfig> = {
         requires: ['primus', 'chora', 'praxis'],
         optional: ['subrosa'],
         defaultModel: 'moonshotai/kimi-k2.5',
-        artifact: { type: 'plan', outputDir: 'agents/primus/directives', synthesizer: 'primus' },
+        artifact: {
+            type: 'plan',
+            outputDir: 'agents/primus/directives',
+            synthesizer: 'primus',
+        },
     },
 
     // ─── Execution ───
@@ -92,7 +108,11 @@ export const FORMATS: Record<ConversationFormat, FormatConfig> = {
         maxTurns: 12,
         temperature: 0.5,
         requires: ['primus', 'praxis', 'mux'],
-        artifact: { type: 'plan', outputDir: 'output/reports', synthesizer: 'mux' },
+        artifact: {
+            type: 'plan',
+            outputDir: 'output/reports',
+            synthesizer: 'mux',
+        },
     },
     shipping: {
         coordinatorRole: 'praxis',
@@ -106,7 +126,11 @@ export const FORMATS: Record<ConversationFormat, FormatConfig> = {
         requires: ['praxis', 'subrosa'],
         optional: ['mux'],
         defaultModel: 'moonshotai/kimi-k2.5',
-        artifact: { type: 'review', outputDir: 'output/reviews', synthesizer: 'praxis' },
+        artifact: {
+            type: 'review',
+            outputDir: 'output/reviews',
+            synthesizer: 'praxis',
+        },
     },
     retro: {
         coordinatorRole: 'primus',
@@ -117,7 +141,11 @@ export const FORMATS: Record<ConversationFormat, FormatConfig> = {
         maxTurns: 14,
         temperature: 0.7,
         requires: ['primus', 'chora'],
-        artifact: { type: 'digest', outputDir: 'output/digests', synthesizer: 'chora' },
+        artifact: {
+            type: 'digest',
+            outputDir: 'output/digests',
+            synthesizer: 'chora',
+        },
     },
 
     // ─── Adversarial / Creative ───
@@ -155,7 +183,11 @@ export const FORMATS: Record<ConversationFormat, FormatConfig> = {
         maxTurns: 12,
         temperature: 0.95,
         requires: ['thaum'],
-        artifact: { type: 'report', outputDir: 'output/reports', synthesizer: 'thaum' },
+        artifact: {
+            type: 'report',
+            outputDir: 'output/reports',
+            synthesizer: 'thaum',
+        },
     },
     reframe: {
         coordinatorRole: 'thaum',
@@ -194,7 +226,11 @@ export const FORMATS: Record<ConversationFormat, FormatConfig> = {
         temperature: 0.6,
         requires: ['subrosa'],
         optional: ['chora', 'praxis'],
-        artifact: { type: 'review', outputDir: 'output/reviews', synthesizer: 'subrosa' },
+        artifact: {
+            type: 'review',
+            outputDir: 'output/reviews',
+            synthesizer: 'subrosa',
+        },
     },
 
     // ─── Social ───
@@ -207,6 +243,21 @@ export const FORMATS: Record<ConversationFormat, FormatConfig> = {
         minTurns: 3,
         maxTurns: 6,
         temperature: 0.95,
+    },
+
+    // ─── Agent Design ───
+
+    agent_design: {
+        coordinatorRole: 'thaum',
+        purpose:
+            'Debate and vote on proposed new agents — evaluate design, necessity, and personality fit.',
+        minAgents: 3,
+        maxAgents: 6,
+        minTurns: 6,
+        maxTurns: 14,
+        temperature: 0.75,
+        requires: ['thaum'],
+        optional: ['chora', 'subrosa', 'praxis', 'mux'],
     },
 };
 

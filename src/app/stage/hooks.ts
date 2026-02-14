@@ -1,7 +1,7 @@
 // Shared hooks for the Stage dashboard
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type {
     AgentEvent,
     AgentRelationship,
@@ -782,8 +782,467 @@ export function useDigest(date?: string) {
 
     return { digest, digests, loading, error, refetch };
 }
+// ─── useContent — fetch + poll content drafts ───
+
+export type ContentType =
+    | 'essay'
+    | 'thread'
+    | 'statement'
+    | 'poem'
+    | 'manifesto';
+export type ContentStatus =
+    | 'draft'
+    | 'review'
+    | 'approved'
+    | 'rejected'
+    | 'published';
+
+export interface ContentDraft {
+    id: string;
+    author_agent: string;
+    content_type: ContentType;
+    title: string;
+    body: string;
+    status: ContentStatus;
+    review_session_id: string | null;
+    reviewer_notes: { reviewer: string; verdict: string; notes: string }[];
+    source_session_id: string | null;
+    published_at: string | null;
+    metadata: Record<string, unknown>;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface ContentFilters {
+    status?: ContentStatus;
+    author?: string;
+    content_type?: ContentType;
+    limit?: number;
+}
+
+export function useContent(filters?: ContentFilters) {
+    const [drafts, setDrafts] = useState<ContentDraft[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [refreshKey, setRefreshKey] = useState(0);
+
+    const serializedFilters = JSON.stringify(filters ?? {});
+
+    const fetchDrafts = useCallback(async () => {
+        try {
+            const params = new URLSearchParams();
+            const f: ContentFilters = JSON.parse(serializedFilters);
+
+            if (f.status) params.set('status', f.status);
+            if (f.author) params.set('author', f.author);
+            if (f.content_type) params.set('content_type', f.content_type);
+            if (f.limit) params.set('limit', String(f.limit));
+
+            const data = await fetchJson<{ drafts: ContentDraft[] }>(
+                `/api/ops/content?${params}`,
+            );
+            setDrafts(data.drafts);
+            setError(null);
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setLoading(false);
+        }
+    }, [serializedFilters]);
+
+    useEffect(() => {
+        setLoading(true);
+        fetchDrafts();
+    }, [fetchDrafts, refreshKey]);
+
+    // Poll every 30 seconds
+    useInterval(() => {
+        fetchDrafts();
+    }, 30000);
+
+    const refetch = useCallback(() => setRefreshKey(k => k + 1), []);
+
+    return { drafts, loading, error, refetch };
+}
+
+// ─── useGovernance — fetch + poll governance proposals ───
+
+export type GovernanceProposalStatus =
+    | 'proposed'
+    | 'voting'
+    | 'accepted'
+    | 'rejected';
+
+export interface GovernanceVoteSummary {
+    approvals: number;
+    rejections: number;
+    total: number;
+    required: number;
+}
+
+export interface GovernanceProposalEntry {
+    id: string;
+    proposer: string;
+    policy_key: string;
+    current_value: Record<string, unknown> | null;
+    proposed_value: Record<string, unknown>;
+    rationale: string;
+    status: GovernanceProposalStatus;
+    votes: Record<string, { vote: string; reason: string }>;
+    required_votes: number;
+    debate_session_id: string | null;
+    vote_summary: GovernanceVoteSummary;
+    created_at: string;
+    resolved_at: string | null;
+}
+
+export function useGovernance(filters?: {
+    status?: GovernanceProposalStatus;
+    proposer?: string;
+    limit?: number;
+}) {
+    const [proposals, setProposals] = useState<GovernanceProposalEntry[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [refreshKey, setRefreshKey] = useState(0);
+
+    const status = filters?.status;
+    const proposer = filters?.proposer;
+    const limit = filters?.limit ?? 50;
+
+    const fetchProposals = useCallback(async () => {
+        try {
+            const params = new URLSearchParams();
+            if (status) params.set('status', status);
+            if (proposer) params.set('proposer', proposer);
+            params.set('limit', String(limit));
+
+            const data = await fetchJson<{
+                proposals: GovernanceProposalEntry[];
+            }>(`/api/ops/governance?${params}`);
+            setProposals(data.proposals);
+            setError(null);
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setLoading(false);
+        }
+    }, [status, proposer, limit]);
+
+    useEffect(() => {
+        setLoading(true);
+        fetchProposals();
+    }, [fetchProposals, refreshKey]);
+
+    // Poll every 30 seconds
+    useInterval(() => {
+        fetchProposals();
+    }, 30000);
+
+    const refetch = useCallback(() => setRefreshKey(k => k + 1), []);
+
+    return { proposals, loading, error, refetch };
+}
+
+// ─── useDreams — fetch dream cycles with filtering ───
+
+export interface DreamEntry {
+    id: string;
+    agent_id: string;
+    source_memories: string[];
+    dream_content: string;
+    dream_type: string;
+    new_memory_id: string | null;
+    created_at: string;
+}
+
+export function useDreams(filters?: {
+    agentId?: string;
+    dreamType?: string;
+    limit?: number;
+}) {
+    const [dreams, setDreams] = useState<DreamEntry[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [refreshKey, setRefreshKey] = useState(0);
+
+    const agentId = filters?.agentId;
+    const dreamType = filters?.dreamType;
+    const limit = filters?.limit ?? 50;
+
+    const fetchDreams = useCallback(async () => {
+        try {
+            const params = new URLSearchParams();
+            if (agentId) params.set('agent_id', agentId);
+            if (dreamType) params.set('dream_type', dreamType);
+            params.set('limit', String(limit));
+
+            const data = await fetchJson<{ dreams: DreamEntry[] }>(
+                `/api/ops/dreams?${params}`,
+            );
+            setDreams(data.dreams);
+            setError(null);
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setLoading(false);
+        }
+    }, [agentId, dreamType, limit]);
+
+    useEffect(() => {
+        setLoading(true);
+        fetchDreams();
+    }, [fetchDreams, refreshKey]);
+
+    // Poll every 60 seconds (dreams are infrequent)
+    useInterval(() => {
+        fetchDreams();
+    }, 60000);
+
+    const refetch = useCallback(() => setRefreshKey(k => k + 1), []);
+
+    return { dreams, loading, error, refetch };
+}
+
+// ─── useAgentProposals — fetch + poll agent design proposals ───
+
+export type AgentProposalStatus =
+    | 'proposed'
+    | 'voting'
+    | 'approved'
+    | 'rejected'
+    | 'spawned';
+
+export interface AgentProposalVoteSummary {
+    approvals: number;
+    rejections: number;
+    total: number;
+}
+
+export interface AgentProposalPersonality {
+    tone: string;
+    traits: string[];
+    speaking_style: string;
+    emoji?: string;
+}
+
+export interface AgentProposalEntry {
+    id: string;
+    proposed_by: string;
+    agent_name: string;
+    agent_role: string;
+    personality: AgentProposalPersonality;
+    skills: string[];
+    rationale: string;
+    status: AgentProposalStatus;
+    votes: Record<string, { vote: string; reasoning: string }>;
+    human_approved: boolean | null;
+    vote_summary: AgentProposalVoteSummary;
+    created_at: string;
+    decided_at: string | null;
+    spawned_at: string | null;
+}
+
+export function useAgentProposals(filters?: {
+    status?: AgentProposalStatus;
+    proposedBy?: string;
+    limit?: number;
+}) {
+    const [proposals, setProposals] = useState<AgentProposalEntry[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [refreshKey, setRefreshKey] = useState(0);
+
+    const status = filters?.status;
+    const proposedBy = filters?.proposedBy;
+    const limit = filters?.limit ?? 50;
+
+    const fetchProposals = useCallback(async () => {
+        try {
+            const params = new URLSearchParams();
+            if (status) params.set('status', status);
+            if (proposedBy) params.set('proposed_by', proposedBy);
+            params.set('limit', String(limit));
+
+            const data = await fetchJson<{
+                proposals: AgentProposalEntry[];
+            }>(`/api/ops/agent-proposals?${params}`);
+            setProposals(data.proposals);
+            setError(null);
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setLoading(false);
+        }
+    }, [status, proposedBy, limit]);
+
+    useEffect(() => {
+        setLoading(true);
+        fetchProposals();
+    }, [fetchProposals, refreshKey]);
+
+    // Poll every 30 seconds
+    useInterval(() => {
+        fetchProposals();
+    }, 30000);
+
+    const refetch = useCallback(() => setRefreshKey(k => k + 1), []);
+
+    return { proposals, loading, error, refetch };
+}
 
 // ─── useInterval — for animations and polling ───
+
+// ─── useRebellionState — fetch active rebellion states ───
+
+export interface RebellionEntry {
+    agentId: string;
+    startedAt: string;
+    eventId: string;
+}
+
+export function useRebellionState() {
+    const [rebels, setRebels] = useState<RebellionEntry[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    const fetchRebellions = useCallback(async () => {
+        try {
+            const data = await fetchJson<{
+                rebels: RebellionEntry[];
+                count: number;
+            }>('/api/ops/rebellion');
+            setRebels(data.rebels);
+        } catch {
+            // Non-fatal — keep previous state
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchRebellions();
+    }, [fetchRebellions]);
+
+    // Poll every 30 seconds for rebellion state changes
+    useInterval(fetchRebellions, 30_000);
+
+    const rebellingAgentIds = useMemo(
+        () => new Set(rebels.map(r => r.agentId)),
+        [rebels],
+    );
+
+    return { rebels, rebellingAgentIds, loading };
+}
+
+// ─── useArchaeology — fetch memory archaeology digs and findings ───
+
+export interface ArchaeologyDigEntry {
+    dig_id: string;
+    agent_id: string;
+    finding_count: number;
+    finding_types: string[];
+    started_at: string;
+}
+
+export interface ArchaeologyFinding {
+    id: string;
+    dig_id: string;
+    agent_id: string;
+    finding_type: string;
+    title: string;
+    description: string;
+    evidence: Array<{ memory_id: string; excerpt: string; relevance: string }>;
+    confidence: number;
+    time_span: { from: string; to: string } | null;
+    related_agents: string[];
+    metadata: Record<string, unknown>;
+    created_at: string;
+}
+
+export function useArchaeology(options?: { limit?: number }) {
+    const [digs, setDigs] = useState<ArchaeologyDigEntry[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [refreshKey, setRefreshKey] = useState(0);
+    const [triggerLoading, setTriggerLoading] = useState(false);
+
+    const limit = options?.limit ?? 20;
+
+    const fetchDigs = useCallback(async () => {
+        try {
+            const data = await fetchJson<{ digs: ArchaeologyDigEntry[] }>(
+                `/api/ops/archaeology?limit=${limit}`,
+            );
+            setDigs(data.digs);
+            setError(null);
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setLoading(false);
+        }
+    }, [limit]);
+
+    useEffect(() => {
+        setLoading(true);
+        fetchDigs();
+    }, [fetchDigs, refreshKey]);
+
+    // Poll every 60 seconds (digs are infrequent)
+    useInterval(() => {
+        fetchDigs();
+    }, 60000);
+
+    const fetchFindings = useCallback(
+        async (digId: string): Promise<ArchaeologyFinding[]> => {
+            const data = await fetchJson<{ findings: ArchaeologyFinding[] }>(
+                `/api/ops/archaeology?dig_id=${digId}`,
+            );
+            return data.findings;
+        },
+        [],
+    );
+
+    const fetchFindingsForMemory = useCallback(
+        async (memoryId: string): Promise<ArchaeologyFinding[]> => {
+            const data = await fetchJson<{ findings: ArchaeologyFinding[] }>(
+                `/api/ops/archaeology?memory_id=${memoryId}`,
+            );
+            return data.findings;
+        },
+        [],
+    );
+
+    const triggerDig = useCallback(async (agentId?: string) => {
+        setTriggerLoading(true);
+        try {
+            await fetch('/api/ops/archaeology', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ agent_id: agentId, max_memories: 100 }),
+            });
+            setRefreshKey(k => k + 1);
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setTriggerLoading(false);
+        }
+    }, []);
+
+    const refetch = useCallback(() => setRefreshKey(k => k + 1), []);
+
+    return {
+        digs,
+        loading,
+        error,
+        triggerLoading,
+        fetchFindings,
+        fetchFindingsForMemory,
+        triggerDig,
+        refetch,
+    };
+}
+
+// ─── useInterval — setinterval with saved callback ───
 
 export function useInterval(callback: () => void, delay: number | null) {
     const savedCallback = useRef(callback);

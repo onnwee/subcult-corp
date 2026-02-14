@@ -2,10 +2,12 @@
 // Designed to be printable — clean monospace layout, no bubbles
 'use client';
 
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useConversationTurns, useTurnStream } from './hooks';
+import { useTTS } from './useTTS';
 import { AGENTS } from '@/lib/agents';
 import type { AgentId, RoundtableSession, RoundtableTurn } from '@/lib/types';
+import type { TTSState, TTSControls } from './useTTS';
 
 // ─── Agent voice symbols ───
 
@@ -94,14 +96,29 @@ function handlePrint(el: HTMLElement | null) {
 
 // ─── Single Turn Entry ───
 
-function TurnEntry({ turn, index }: { turn: RoundtableTurn; index: number }) {
+function TurnEntry({
+    turn,
+    index,
+    ttsState,
+    ttsControls,
+}: {
+    turn: RoundtableTurn;
+    index: number;
+    ttsState?: TTSState;
+    ttsControls?: TTSControls;
+}) {
     const agentId = turn.speaker as AgentId;
     const agent = AGENTS[agentId];
     const textColor = agent?.tailwindTextColor ?? 'text-zinc-400';
     const symbol = VOICE_SYMBOLS[turn.speaker] ?? '';
+    const isSpeaking = ttsState?.activeTurnIndex === index;
 
     return (
-        <div className='turn mb-4'>
+        <div
+            className={`turn mb-4 transition-colors rounded-md -mx-2 px-2 py-0.5 ${
+                isSpeaking ? 'bg-zinc-800/80 ring-1 ring-zinc-600/50' : ''
+            }`}
+        >
             <div className='turn-header flex items-baseline gap-2'>
                 <span className='turn-number text-[10px] text-zinc-600 font-mono tabular-nums w-6 text-right shrink-0'>
                     {index + 1}.
@@ -114,6 +131,31 @@ function TurnEntry({ turn, index }: { turn: RoundtableTurn; index: number }) {
                 <span className='turn-time text-[10px] text-zinc-600 font-mono'>
                     [{formatTime(turn.created_at)}]
                 </span>
+                {ttsState?.isAvailable && ttsControls && (
+                    <button
+                        onClick={() =>
+                            isSpeaking ?
+                                ttsControls.stop()
+                            :   ttsControls.playTurn(turn, index)
+                        }
+                        className={`text-[10px] transition-colors p-0.5 rounded hover:bg-zinc-700/50 ${
+                            isSpeaking ?
+                                'text-accent-blue animate-pulse'
+                            :   'text-zinc-600 hover:text-zinc-400'
+                        }`}
+                        title={isSpeaking ? 'Stop speaking' : 'Speak this turn'}
+                    >
+                        {isSpeaking ?
+                            <svg className='h-3 w-3' fill='currentColor' viewBox='0 0 24 24'>
+                                <rect x='4' y='4' width='6' height='16' rx='1' />
+                                <rect x='14' y='4' width='6' height='16' rx='1' />
+                            </svg>
+                        :   <svg className='h-3 w-3' fill='currentColor' viewBox='0 0 24 24'>
+                                <path d='M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z' />
+                            </svg>
+                        }
+                    </button>
+                )}
             </div>
             <p className='turn-dialogue text-sm text-zinc-200 leading-relaxed mt-0.5 ml-8 pl-0.5'>
                 {turn.dialogue}
@@ -142,9 +184,11 @@ function TranscriptSkeleton() {
 export function TranscriptViewer({
     session,
     onClose,
+    onStartReplay,
 }: {
     session: RoundtableSession;
     onClose: () => void;
+    onStartReplay?: (session: RoundtableSession, turns: RoundtableTurn[]) => void;
 }) {
     const isRunning =
         session.status === 'running' || session.status === 'pending';
@@ -166,6 +210,9 @@ export function TranscriptViewer({
 
     const printRef = useRef<HTMLDivElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const [ttsState, ttsControls] = useTTS();
+    const [autoSpeak, setAutoSpeak] = useState(false);
+    const prevTurnCountRef = useRef(turns.length);
 
     const formatLabel = session.format.replace(/_/g, ' ').toUpperCase();
     const coordinator =
@@ -182,6 +229,23 @@ export function TranscriptViewer({
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
     }, [isLive, turns.length]);
+
+    // Stop TTS when component unmounts or session changes
+    useEffect(() => {
+        return () => {
+            ttsControls.stop();
+        };
+    }, [session.id, ttsControls]);
+
+    // Auto-speak new turns as they arrive via SSE
+    useEffect(() => {
+        if (!autoSpeak || !isLive || !ttsState.isAvailable) return;
+        if (turns.length > prevTurnCountRef.current) {
+            const newTurn = turns[turns.length - 1];
+            ttsControls.playTurn(newTurn, turns.length - 1);
+        }
+        prevTurnCountRef.current = turns.length;
+    }, [turns.length, autoSpeak, isLive, ttsState.isAvailable, turns, ttsControls]);
 
     return (
         <div className='rounded-xl border border-zinc-700/50 bg-zinc-900/80 overflow-hidden'>
@@ -202,8 +266,68 @@ export function TranscriptViewer({
                             </span>
                         </span>
                     )}
+                    {isLive && ttsState.isAvailable && (
+                        <button
+                            onClick={() => setAutoSpeak(s => !s)}
+                            className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider border transition-colors ${
+                                autoSpeak
+                                    ? 'bg-accent-blue/15 border-accent-blue/30 text-accent-blue'
+                                    : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-500 hover:text-zinc-400'
+                            }`}
+                            title={autoSpeak ? 'Disable auto-speak for new turns' : 'Auto-speak new turns as they arrive'}
+                        >
+                            <svg className='h-2.5 w-2.5' fill='currentColor' viewBox='0 0 24 24'>
+                                <path d='M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z' />
+                            </svg>
+                            Auto
+                        </button>
+                    )}
                 </div>
                 <div className='flex items-center gap-2'>
+                    {onStartReplay && session.status === 'completed' && turns.length > 0 && (
+                        <button
+                            onClick={() => onStartReplay(session, turns)}
+                            className='text-[10px] text-accent-blue hover:text-accent-blue/80 transition-colors px-2 py-1 rounded hover:bg-zinc-800 font-mono uppercase tracking-wider flex items-center gap-1'
+                            title='Watch animated replay in the office'
+                        >
+                            <svg className='h-3 w-3' fill='currentColor' viewBox='0 0 24 24'>
+                                <polygon points='5,3 19,12 5,21' />
+                            </svg>
+                            Replay
+                        </button>
+                    )}
+                    {ttsState.isAvailable && turns.length > 0 && (
+                        ttsState.isPlaying ?
+                            <button
+                                onClick={ttsControls.stop}
+                                className='text-[10px] text-accent-red hover:text-accent-red/80 transition-colors px-2 py-1 rounded hover:bg-zinc-800 font-mono uppercase tracking-wider flex items-center gap-1'
+                                title='Stop speaking'
+                            >
+                                <svg className='h-3 w-3' fill='currentColor' viewBox='0 0 24 24'>
+                                    <rect x='4' y='4' width='16' height='16' rx='2' />
+                                </svg>
+                                Stop
+                            </button>
+                        :   <button
+                                onClick={() => ttsControls.playAll(turns)}
+                                className='text-[10px] text-zinc-400 hover:text-zinc-200 transition-colors px-2 py-1 rounded hover:bg-zinc-800 font-mono uppercase tracking-wider flex items-center gap-1'
+                                title='Read all turns aloud'
+                            >
+                                <svg className='h-3 w-3' fill='currentColor' viewBox='0 0 24 24'>
+                                    <path d='M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z' />
+                                </svg>
+                                Play All
+                            </button>
+                    )}
+                    {ttsState.needsUnlock && (
+                        <button
+                            onClick={ttsControls.unlock}
+                            className='text-[10px] text-amber-400 hover:text-amber-300 transition-colors px-2 py-1 rounded hover:bg-zinc-800 font-mono uppercase tracking-wider animate-pulse'
+                            title='Click to enable audio playback'
+                        >
+                            🔇 Enable Audio
+                        </button>
+                    )}
                     <button
                         onClick={() => handlePrint(printRef.current)}
                         className='text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors px-2 py-1 rounded hover:bg-zinc-800 font-mono uppercase tracking-wider'
@@ -349,6 +473,8 @@ export function TranscriptViewer({
                                         key={turn.id}
                                         turn={turn}
                                         index={i}
+                                        ttsState={ttsState}
+                                        ttsControls={ttsControls}
                                     />
                                 ))
                             }

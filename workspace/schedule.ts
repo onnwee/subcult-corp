@@ -27,7 +27,8 @@ export type OfficeSlot = {
         | 'deep_discussion'
         | 'handoff'
         | 'maintenance'
-        | 'intel_scan';
+        | 'intel_scan'
+        | 'dream_cycle';
     participants: string[];
     probability: number; // 0.0–1.0
 };
@@ -102,6 +103,13 @@ export const SUBCULT_OFFICE_SCHEDULE: OfficeSlot[] = [
         probability: 0.7,
     },
     {
+        hour_utc: 8,
+        name: 'Dream Cycle (2AM CST)',
+        format: 'dream_cycle',
+        participants: [...threeRandom(eligible).slice(0, 2)],
+        probability: 0.3,
+    },
+    {
         hour_utc: 9,
         name: 'Planning & Scoping',
         format: 'planning',
@@ -114,6 +122,13 @@ export const SUBCULT_OFFICE_SCHEDULE: OfficeSlot[] = [
         format: 'risk_review',
         participants: ['subrosa', 'praxis', ...threeRandom(eligible)],
         probability: 0.6,
+    },
+    {
+        hour_utc: 10,
+        name: 'Dream Cycle (4AM CST)',
+        format: 'dream_cycle',
+        participants: [...threeRandom(eligible).slice(0, 2)],
+        probability: 0.3,
     },
     {
         hour_utc: 11,

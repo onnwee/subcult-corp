@@ -4,7 +4,10 @@ import type { TriggerRule, TriggerCheckResult, ProposedStep } from '../types';
 import { createProposalAndMaybeAutoApprove } from './proposal-service';
 import { emitEvent } from './events';
 import { getPolicy } from './policy';
-import { evaluateCondition, type TriggerCondition } from './condition-evaluator';
+import {
+    evaluateCondition,
+    type TriggerCondition,
+} from './condition-evaluator';
 import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'triggers' });
@@ -29,7 +32,8 @@ export async function evaluateTriggers(
     const defaultsPolicy = await getPolicy('trigger_defaults');
     const triggerDefaults: TriggerDefaults = {
         stall_minutes: (defaultsPolicy.stall_minutes as number) ?? 120,
-        failure_rate_threshold: (defaultsPolicy.failure_rate_threshold as number) ?? 0.3,
+        failure_rate_threshold:
+            (defaultsPolicy.failure_rate_threshold as number) ?? 0.3,
         lookback_hours: (defaultsPolicy.lookback_hours as number) ?? 48,
     };
 
@@ -90,7 +94,10 @@ export async function evaluateTriggers(
     return { evaluated, fired };
 }
 
-async function checkTrigger(rule: TriggerRule, defaults: TriggerDefaults): Promise<TriggerCheckResult> {
+async function checkTrigger(
+    rule: TriggerRule,
+    defaults: TriggerDefaults,
+): Promise<TriggerCheckResult> {
     const conditions = rule.conditions as Record<string, unknown>;
     const actionConfig = rule.action_config as Record<string, unknown>;
     const targetAgent = actionConfig.target_agent as string;
@@ -99,7 +106,9 @@ async function checkTrigger(rule: TriggerRule, defaults: TriggerDefaults): Promi
     // Declarative condition path — if rule has a JSONB condition, evaluate it
     if (rule.condition) {
         try {
-            const met = await evaluateCondition(rule.condition as unknown as TriggerCondition);
+            const met = await evaluateCondition(
+                rule.condition as unknown as TriggerCondition,
+            );
             if (met) {
                 return {
                     fired: true,
@@ -107,18 +116,25 @@ async function checkTrigger(rule: TriggerRule, defaults: TriggerDefaults): Promi
                     proposal: {
                         agent_id: targetAgent,
                         title: (actionConfig.title as string) ?? rule.name,
-                        description: (actionConfig.description as string) ?? undefined,
-                        proposed_steps: (actionConfig.steps as ProposedStep[]) ?? [{ kind: 'log_event' as const }],
+                        description:
+                            (actionConfig.description as string) ?? undefined,
+                        proposed_steps:
+                            (actionConfig.steps as ProposedStep[]) ?? [
+                                { kind: 'log_event' as const },
+                            ],
                         source: 'trigger',
                     },
                 };
             }
             return { fired: false };
         } catch (err) {
-            log.error(`Declarative condition evaluation failed for "${rule.name}", falling through to code`, {
-                error: err,
-                ruleId: rule.id,
-            });
+            log.error(
+                `Declarative condition evaluation failed for "${rule.name}", falling through to code`,
+                {
+                    error: err,
+                    ruleId: rule.id,
+                },
+            );
             // Fall through to switch/case as fallback
         }
     }
@@ -126,6 +142,8 @@ async function checkTrigger(rule: TriggerRule, defaults: TriggerDefaults): Promi
     switch (rule.trigger_event) {
         case 'mission_failed':
             return checkMissionFailed(conditions, targetAgent, actionType);
+        case 'content_draft_created':
+            return checkContentDraftCreated(conditions, targetAgent);
         case 'content_published':
             return checkContentPublished(conditions, targetAgent);
         case 'content_marked_public':
@@ -148,6 +166,10 @@ async function checkTrigger(rule: TriggerRule, defaults: TriggerDefaults): Promi
             return checkOpsReport(conditions, targetAgent);
         case 'strategic_drift_check':
             return checkStrategicDrift(conditions, targetAgent, defaults);
+        case 'governance_proposal_created':
+            return checkGovernanceProposalCreated(conditions, targetAgent);
+        case 'memory_archaeology_due':
+            return checkMemoryArchaeologyDue(conditions, targetAgent);
         default:
             if (rule.trigger_event.startsWith('proactive_')) {
                 return checkProactiveGeneric(rule, targetAgent);
@@ -184,6 +206,75 @@ async function checkMissionFailed(
         };
     }
     return { fired: false };
+}
+
+async function checkContentDraftCreated(
+    conditions: Record<string, unknown>,
+    targetAgent: string,
+): Promise<TriggerCheckResult> {
+    const lookback = (conditions.lookback_minutes as number) ?? 30;
+    const cutoff = new Date(Date.now() - lookback * 60_000).toISOString();
+
+    // Find drafts in 'draft' status created recently that don't have a review session yet
+    const drafts = await sql<
+        { id: string; title: string; author_agent: string; body: string }[]
+    >`
+        SELECT id, title, author_agent, LEFT(body, 500) as body
+        FROM ops_content_drafts
+        WHERE status = 'draft'
+          AND review_session_id IS NULL
+          AND created_at >= ${cutoff}
+        ORDER BY created_at ASC
+        LIMIT 1
+    `;
+
+    if (drafts.length === 0) {
+        return { fired: false };
+    }
+
+    const draft = drafts[0];
+
+    // Enqueue a content_review roundtable session
+    const topic = `Review content draft: "${draft.title}" by ${draft.author_agent}`;
+    const [session] = await sql<[{ id: string }]>`
+        INSERT INTO ops_roundtable_sessions (
+            format, topic, participants, status, scheduled_for, metadata
+        ) VALUES (
+            'content_review',
+            ${topic},
+            ARRAY['subrosa', 'chora', 'praxis'],
+            'pending',
+            NOW(),
+            ${sql.json({ draft_id: draft.id, draft_title: draft.title, author: draft.author_agent })}::jsonb
+        )
+        RETURNING id
+    `;
+
+    // Update draft status to 'review' and link the review session
+    await sql`
+        UPDATE ops_content_drafts
+        SET status = 'review',
+            review_session_id = ${session.id},
+            updated_at = NOW()
+        WHERE id = ${draft.id}
+    `;
+
+    log.info('Auto-review triggered for content draft', {
+        draftId: draft.id,
+        reviewSessionId: session.id,
+    });
+
+    return {
+        fired: true,
+        reason: `Content draft "${draft.title}" sent to review`,
+        proposal: {
+            agent_id: targetAgent,
+            title: `Content review initiated: ${draft.title}`,
+            description: `Roundtable review session created for draft by ${draft.author_agent}`,
+            proposed_steps: [{ kind: 'log_event' }],
+            source: 'trigger',
+        },
+    };
 }
 
 async function checkContentPublished(
@@ -268,7 +359,8 @@ async function checkWorkStalled(
     targetAgent: string,
     defaults: TriggerDefaults,
 ): Promise<TriggerCheckResult> {
-    const stallMinutes = (conditions.stall_minutes as number) ?? defaults.stall_minutes;
+    const stallMinutes =
+        (conditions.stall_minutes as number) ?? defaults.stall_minutes;
     const cutoff = new Date(Date.now() - stallMinutes * 60_000).toISOString();
 
     const [{ count }] = await sql<[{ count: number }]>`
@@ -432,8 +524,14 @@ async function checkProposalTriage(
                 title: `Triage proposal backlog (${count} pending)`,
                 description: `${count} proposals awaiting review. Categorize by urgency and recommend batch actions.`,
                 proposed_steps: [
-                    { kind: 'audit_system', payload: { scope: 'proposal_backlog' } },
-                    { kind: 'document_lesson', payload: { topic: 'proposal_triage_results' } },
+                    {
+                        kind: 'audit_system',
+                        payload: { scope: 'proposal_backlog' },
+                    },
+                    {
+                        kind: 'document_lesson',
+                        payload: { topic: 'proposal_triage_results' },
+                    },
                 ],
                 source: 'trigger',
             },
@@ -447,14 +545,20 @@ async function checkOpsReport(
     targetAgent: string,
 ): Promise<TriggerCheckResult> {
     // Always fires when off cooldown — it's a periodic report
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+    const twentyFourHoursAgo = new Date(
+        Date.now() - 24 * 60 * 60_000,
+    ).toISOString();
 
-    const [stats] = await sql<[{
-        total_missions: number;
-        succeeded: number;
-        failed: number;
-        active_agents: number;
-    }]>`
+    const [stats] = await sql<
+        [
+            {
+                total_missions: number;
+                succeeded: number;
+                failed: number;
+                active_agents: number;
+            },
+        ]
+    >`
         SELECT
             COUNT(*)::int as total_missions,
             COUNT(*) FILTER (WHERE status = 'succeeded')::int as succeeded,
@@ -473,7 +577,10 @@ async function checkOpsReport(
             description: `24h summary: ${stats.total_missions} missions (${stats.succeeded} succeeded, ${stats.failed} failed), ${stats.active_agents} active agents. Analyze throughput and agent balance.`,
             proposed_steps: [
                 { kind: 'audit_system', payload: { scope: 'ops_health' } },
-                { kind: 'document_lesson', payload: { topic: 'ops_status_report' } },
+                {
+                    kind: 'document_lesson',
+                    payload: { topic: 'ops_status_report' },
+                },
             ],
             source: 'trigger',
         },
@@ -485,9 +592,14 @@ async function checkStrategicDrift(
     targetAgent: string,
     defaults: TriggerDefaults,
 ): Promise<TriggerCheckResult> {
-    const lookbackHours = (conditions.lookback_hours as number) ?? defaults.lookback_hours;
-    const failureThreshold = (conditions.failure_rate_threshold as number) ?? defaults.failure_rate_threshold;
-    const cutoff = new Date(Date.now() - lookbackHours * 60 * 60_000).toISOString();
+    const lookbackHours =
+        (conditions.lookback_hours as number) ?? defaults.lookback_hours;
+    const failureThreshold =
+        (conditions.failure_rate_threshold as number) ??
+        defaults.failure_rate_threshold;
+    const cutoff = new Date(
+        Date.now() - lookbackHours * 60 * 60_000,
+    ).toISOString();
 
     // Check mission failure rate
     const [missionStats] = await sql<[{ total: number; failed: number }]>`
@@ -499,9 +611,8 @@ async function checkStrategicDrift(
         AND status IN ('succeeded', 'failed')
     `;
 
-    const failureRate = missionStats.total > 0
-        ? missionStats.failed / missionStats.total
-        : 0;
+    const failureRate =
+        missionStats.total > 0 ? missionStats.failed / missionStats.total : 0;
 
     // Check if any strategy roundtable has occurred recently
     const [{ count: strategyCount }] = await sql<[{ count: number }]>`
@@ -510,13 +621,18 @@ async function checkStrategicDrift(
         AND format = 'strategy'
     `;
 
-    const highFailureRate = missionStats.total >= 3 && failureRate > failureThreshold;
+    const highFailureRate =
+        missionStats.total >= 3 && failureRate > failureThreshold;
     const noStrategySession = strategyCount === 0;
 
     if (highFailureRate || noStrategySession) {
         const reasons: string[] = [];
-        if (highFailureRate) reasons.push(`failure rate ${(failureRate * 100).toFixed(0)}% (${missionStats.failed}/${missionStats.total})`);
-        if (noStrategySession) reasons.push(`no strategy session in ${lookbackHours}h`);
+        if (highFailureRate)
+            reasons.push(
+                `failure rate ${(failureRate * 100).toFixed(0)}% (${missionStats.failed}/${missionStats.total})`,
+            );
+        if (noStrategySession)
+            reasons.push(`no strategy session in ${lookbackHours}h`);
 
         return {
             fired: true,
@@ -526,8 +642,14 @@ async function checkStrategicDrift(
                 title: `Strategic drift assessment`,
                 description: `Drift indicators: ${reasons.join('; ')}. Review alignment of current operations with core objectives.`,
                 proposed_steps: [
-                    { kind: 'audit_system', payload: { scope: 'strategic_alignment' } },
-                    { kind: 'identify_assumption', payload: { scope: 'operational_drift' } },
+                    {
+                        kind: 'audit_system',
+                        payload: { scope: 'strategic_alignment' },
+                    },
+                    {
+                        kind: 'identify_assumption',
+                        payload: { scope: 'operational_drift' },
+                    },
                 ],
                 source: 'trigger',
             },
@@ -558,6 +680,137 @@ async function checkProactiveGeneric(
             agent_id: targetAgent,
             title: rule.name.substring(0, 100),
             proposed_steps: [{ kind: 'research_topic', payload: { topic } }],
+            source: 'trigger',
+        },
+    };
+}
+
+async function checkGovernanceProposalCreated(
+    conditions: Record<string, unknown>,
+    targetAgent: string,
+): Promise<TriggerCheckResult> {
+    const lookback = (conditions.lookback_minutes as number) ?? 60;
+    const cutoff = new Date(Date.now() - lookback * 60_000).toISOString();
+
+    // Find proposals in 'proposed' status that don't yet have a debate session
+    const proposals = await sql<
+        {
+            id: string;
+            proposer: string;
+            policy_key: string;
+            current_value: Record<string, unknown> | null;
+            proposed_value: Record<string, unknown>;
+            rationale: string;
+        }[]
+    >`
+        SELECT id, proposer, policy_key, current_value, proposed_value, rationale
+        FROM ops_governance_proposals
+        WHERE status = 'proposed'
+          AND debate_session_id IS NULL
+          AND created_at >= ${cutoff}
+        ORDER BY created_at ASC
+        LIMIT 1
+    `;
+
+    if (proposals.length === 0) {
+        return { fired: false };
+    }
+
+    const proposal = proposals[0];
+
+    // Build debate topic
+    const currentStr = JSON.stringify(proposal.current_value, null, 0);
+    const proposedStr = JSON.stringify(proposal.proposed_value, null, 0);
+    const topic = `Governance debate: ${proposal.proposer} proposes changing "${proposal.policy_key}" from ${currentStr} to ${proposedStr}. Rationale: ${proposal.rationale}`;
+
+    // Create a debate roundtable with ALL 6 agents
+    const allAgents = ['chora', 'subrosa', 'thaum', 'praxis', 'mux', 'primus'];
+    const [session] = await sql<[{ id: string }]>`
+        INSERT INTO ops_roundtable_sessions (
+            format, topic, participants, status, scheduled_for, metadata
+        ) VALUES (
+            'debate',
+            ${topic.slice(0, 1000)},
+            ${allAgents},
+            'pending',
+            NOW(),
+            ${sql.json({
+                governance_proposal_id: proposal.id,
+                policy_key: proposal.policy_key,
+                proposer: proposal.proposer,
+            })}::jsonb
+        )
+        RETURNING id
+    `;
+
+    // Update proposal: status → voting, link debate session
+    await sql`
+        UPDATE ops_governance_proposals
+        SET status = 'voting', debate_session_id = ${session.id}
+        WHERE id = ${proposal.id}
+    `;
+
+    log.info('Governance debate session created', {
+        proposalId: proposal.id,
+        sessionId: session.id,
+        policyKey: proposal.policy_key,
+    });
+
+    return {
+        fired: true,
+        reason: `Governance debate convened for "${proposal.policy_key}" (proposed by ${proposal.proposer})`,
+        proposal: {
+            agent_id: targetAgent,
+            title: `Governance debate: ${proposal.policy_key}`,
+            description: `Debate roundtable created for proposal by ${proposal.proposer}`,
+            proposed_steps: [{ kind: 'log_event' }],
+            source: 'trigger',
+        },
+    };
+}
+
+// ─── Memory Archaeology ───
+
+async function checkMemoryArchaeologyDue(
+    conditions: Record<string, unknown>,
+    targetAgent: string,
+): Promise<TriggerCheckResult> {
+    const minDaysBetweenDigs =
+        (conditions.min_days_between_digs as number) ?? 7;
+    const cutoff = new Date(
+        Date.now() - minDaysBetweenDigs * 86_400_000,
+    ).toISOString();
+
+    // Check if a dig has been performed recently
+    const [{ count }] = await sql<[{ count: number }]>`
+        SELECT COUNT(DISTINCT dig_id)::int as count
+        FROM ops_memory_archaeology
+        WHERE created_at >= ${cutoff}
+    `;
+
+    if (count > 0) {
+        return { fired: false };
+    }
+
+    // Check there are enough memories to analyze
+    const [{ memCount }] = await sql<[{ memCount: number }]>`
+        SELECT COUNT(*)::int as "memCount"
+        FROM ops_agent_memory
+        WHERE superseded_by IS NULL
+    `;
+
+    if (memCount < 10) {
+        return { fired: false };
+    }
+
+    return {
+        fired: true,
+        reason: `No archaeological dig in ${minDaysBetweenDigs} days — ${memCount} memories available for analysis`,
+        proposal: {
+            agent_id: targetAgent,
+            title: 'Weekly memory archaeology dig',
+            description: `Deep analysis of ${memCount} collective memories for patterns, contradictions, and drift`,
+            proposed_steps: [{ kind: 'memory_archaeology' }],
             source: 'trigger',
         },
     };

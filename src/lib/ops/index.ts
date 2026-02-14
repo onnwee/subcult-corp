@@ -36,3 +36,49 @@ export {
     deriveVoiceModifiers,
     clearVoiceModifierCache,
 } from './voice-evolution';
+export {
+    checkRebellionState,
+    isAgentRebelling,
+    endRebellion,
+    attemptRebellionResolution,
+    enqueueRebellionCrossExam,
+    getRebellingAgents,
+} from './rebellion';
+export {
+    generateAgentProposal,
+    saveProposal,
+    getProposals,
+    getProposalById,
+    setHumanApproval,
+} from './agent-designer';
+export type {
+    AgentProposal,
+    AgentProposalStatus,
+    AgentProposalVote,
+    AgentPersonality,
+} from './agent-designer';
+export {
+    submitVote,
+    tallyVotes,
+    checkConsensus,
+    transitionToVoting,
+    finalizeVoting,
+    createVotingRoundtablePrompt,
+} from './agent-proposal-voting';
+export { prepareSpawn, executeSpawn } from './agent-spawner';
+export {
+    performDig,
+    getDigHistory,
+    getFindings,
+    getLatestFindings,
+    getFindingsForMemory,
+    getLastDigTimestamp,
+} from './memory-archaeology';
+export type {
+    FindingType,
+    ArchaeologyConfig,
+    Finding,
+    DigResult,
+    DigSummary,
+    StoredFinding,
+} from './memory-archaeology';

@@ -12,7 +12,12 @@ import {
 } from './hooks';
 import { AGENTS } from '@/lib/agents';
 import { TranscriptViewer } from './TranscriptViewer';
-import type { AgentEvent, AgentId, RoundtableSession } from '@/lib/types';
+import type {
+    AgentEvent,
+    AgentId,
+    RoundtableSession,
+    RoundtableTurn,
+} from '@/lib/types';
 
 // ─── Constants ───
 
@@ -43,6 +48,8 @@ const KIND_ICONS: Record<string, string> = {
     agent_session: '🟢',
     health_check: '🩺',
     health_score: '📊',
+    rebellion_started: '🔥',
+    rebellion_ended: '🕊️',
     default: '📡',
 };
 
@@ -73,6 +80,8 @@ const KIND_LABELS: Record<string, string> = {
     agent_session: 'Agent Session',
     health_check: 'Health Check',
     health_score: 'Health Score',
+    rebellion_started: 'Rebellion Started',
+    rebellion_ended: 'Rebellion Ended',
 };
 
 // ─── Helpers ───
@@ -109,6 +118,8 @@ function formatRelativeTime(dateStr: string): string {
 function getKindSeverity(
     kind: string,
 ): 'info' | 'success' | 'warning' | 'error' {
+    if (kind === 'rebellion_started') return 'error';
+    if (kind === 'rebellion_ended') return 'success';
     if (kind.includes('failed') || kind.includes('rejected')) return 'error';
     if (kind === 'model_fallback' || kind === 'alert_sent') return 'warning';
     if (kind === 'health_score') return 'info';
@@ -401,6 +412,8 @@ const TAB_FILTERS: Record<FeedTab, string[] | null> = {
         'memory_consolidated',
         'heartbeat',
         'health_check',
+        'rebellion_started',
+        'rebellion_ended',
     ],
     sessions: [
         'agent_session_completed',
@@ -472,7 +485,14 @@ const CONVERSATION_EVENT_KINDS = new Set([
 
 export function EventLogFeed({
     onConnectionStatusAction,
-}: { onConnectionStatusAction?: (status: ConnectionStatus) => void } = {}) {
+    onStartReplay,
+}: {
+    onConnectionStatusAction?: (status: ConnectionStatus) => void;
+    onStartReplay?: (
+        session: RoundtableSession,
+        turns: RoundtableTurn[],
+    ) => void;
+} = {}) {
     const [activeTab, setActiveTab] = useState<FeedTab>('all');
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
     const [showSessions, setShowSessions] = useState(true);
@@ -611,6 +631,7 @@ export function EventLogFeed({
                                                 onClose={() =>
                                                     setSelectedSession(null)
                                                 }
+                                                onStartReplay={onStartReplay}
                                             />
                                         </div>
                                     )}
@@ -680,6 +701,7 @@ export function EventLogFeed({
                                                 onClose={() =>
                                                     setTranscriptEventId(null)
                                                 }
+                                                onStartReplay={onStartReplay}
                                             />
                                         </div>
                                     )}
