@@ -1,4 +1,4 @@
-// Seed roundtable policy — conversation schedule and controls for OpenClaw agents
+// Seed roundtable policy — conversation schedule and controls for subcult agents
 // Run: node scripts/go-live/seed-roundtable-policy.mjs
 //
 // Configures the roundtable conversation system for: Chora, Subrosa, Thaum, Praxis (+ Mux coordination)

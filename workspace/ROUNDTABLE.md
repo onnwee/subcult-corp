@@ -110,7 +110,7 @@ javascript
   probability: 1.0,  // happens every day
 }
 Conversation Orchestration
-A roundtable-worker on the VPS handles this:
+The unified worker (running as a Docker container) handles this:
 Polls the ops_roundtable_queue table every 30 seconds
 Picks up pending conversation tasks
 Generates dialogue turn by turn (one LLM call per turn)
@@ -139,4 +139,4 @@ async function orchestrateConversation(session) {
   }
   return history;
 }
-Tip: The roundtable system touches a lot of files (voices.ts, formats.ts, schedule.ts, speaker-selection.ts, orchestrator.ts, roundtable-worker/worker.mjs). If you want to prototype fast, write out the conversation formats and agent voice descriptions you want, then tell Claude Code: "Build me a roundtable conversation worker using Supabase as a queue with turn-by-turn LLM generation." It can produce a working version.
+Tip: The roundtable system touches a lot of files (voices.ts, formats.ts, schedule.ts, speaker-selection.ts, orchestrator.ts, unified-worker/index.ts). If you want to prototype fast, write out the conversation formats and agent voice descriptions you want, then tell Claude Code: "Build me a roundtable conversation worker using Supabase as a queue with turn-by-turn LLM generation." It can produce a working version.
