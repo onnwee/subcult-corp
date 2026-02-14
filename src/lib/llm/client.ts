@@ -275,6 +275,9 @@ export async function llmGenerate(
         ? [normalizeModel(model)]
         : await resolveModelsWithEnv(trackingContext?.context);
     const modelList = resolved.slice(0, MAX_MODELS_ARRAY);
+    if (modelList.length === 0) {
+        throw new Error('No LLM models available after resolution');
+    }
 
     const buildCallOpts = (spec: string | string[]): Record<string, unknown> => {
         const isArray = Array.isArray(spec);

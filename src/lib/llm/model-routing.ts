@@ -48,25 +48,38 @@ export async function resolveModels(context?: string): Promise<string[]> {
     return await lookupOrDefault('default');
 }
 
-/** Lookup with 30s TTL cache. Returns null if no row found. */
+/** Lookup with 30s TTL cache. Returns null if no row found or if models array is empty. */
 async function lookupCached(context: string): Promise<string[] | null> {
     const cached = cache.get(context);
     if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
         return cached.models.length > 0 ? cached.models : null;
     }
 
-    const [row] = await sql<[{ models: string[] }?]>`
-        SELECT models FROM ops_model_routing WHERE context = ${context}
-    `;
+    try {
+        const [row] = await sql<[{ models: string[] }?]>`
+            SELECT models FROM ops_model_routing WHERE context = ${context}
+        `;
 
-    if (!row) {
-        // Cache the miss too, so we don't hit the DB every call
+        if (!row || !row.models || row.models.length === 0) {
+            // Cache the miss too, so we don't hit the DB every call
+            // Treat NULL or empty array as a miss to fall back to prefix/default/hardcoded
+            cache.set(context, { models: [], ts: Date.now() });
+            return null;
+        }
+
+        cache.set(context, { models: row.models, ts: Date.now() });
+        return row.models;
+    } catch (error) {
+        // If the routing table is missing or the query fails for any reason,
+        // log and fall back to hardcoded DEFAULT_MODELS via lookupOrDefault.
+        console.error(
+            'resolveModels: failed to query ops_model_routing; falling back to default models',
+            error,
+        );
+        // Cache the miss so we don't repeatedly hit a failing query.
         cache.set(context, { models: [], ts: Date.now() });
         return null;
     }
-
-    cache.set(context, { models: row.models, ts: Date.now() });
-    return row.models;
 }
 
 /** Lookup 'default' row, fall back to hardcoded DEFAULT_MODELS. */

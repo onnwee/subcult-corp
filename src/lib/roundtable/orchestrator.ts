@@ -322,7 +322,7 @@ export async function orchestrateConversation(
                 ],
                 temperature: format.temperature,
                 maxTokens: 100,
-                model: session.model ?? undefined,
+                model: session.model ?? format.defaultModel ?? undefined,
                 tools: speakerTools.length > 0 ? speakerTools : undefined,
                 maxToolRounds: 2,
                 trackingContext: {
