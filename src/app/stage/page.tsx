@@ -14,6 +14,7 @@ import { CostTracker } from './CostTracker';
 import { MemoryExplorer } from './MemoryExplorer';
 import { RelationshipGraph } from './RelationshipGraph';
 import { StageErrorBoundary, SectionErrorBoundary } from './StageErrorBoundary';
+import { AskTheRoom } from './AskTheRoom';
 import {
     MissionsListSkeleton,
     EventLogFeedSkeleton,
@@ -55,13 +56,18 @@ export default function StagePage() {
 
                     {/* ── Feed View ── */}
                     {view === 'feed' && (
-                        <SectionErrorBoundary label='Event Log'>
-                            <Suspense fallback={<EventLogFeedSkeleton />}>
-                                <EventLogFeed
-                                    onConnectionStatusAction={handleConnectionStatus}
-                                />
-                            </Suspense>
-                        </SectionErrorBoundary>
+                        <>
+                            <AskTheRoom />
+                            <SectionErrorBoundary label='Event Log'>
+                                <Suspense fallback={<EventLogFeedSkeleton />}>
+                                    <EventLogFeed
+                                        onConnectionStatusAction={
+                                            handleConnectionStatus
+                                        }
+                                    />
+                                </Suspense>
+                            </SectionErrorBoundary>
+                        </>
                     )}
 
                     {/* ── Missions View ── */}
@@ -84,9 +90,9 @@ export default function StagePage() {
                                     <button
                                         onClick={() => setOfficeMode('svg')}
                                         className={`px-3 py-1 text-[11px] font-medium rounded-md transition-colors ${
-                                            officeMode === 'svg'
-                                                ? 'bg-zinc-700 text-zinc-100'
-                                                : 'text-zinc-500 hover:text-zinc-300'
+                                            officeMode === 'svg' ?
+                                                'bg-zinc-700 text-zinc-100'
+                                            :   'text-zinc-500 hover:text-zinc-300'
                                         }`}
                                     >
                                         SVG
@@ -94,25 +100,25 @@ export default function StagePage() {
                                     <button
                                         onClick={() => setOfficeMode('3d')}
                                         className={`px-3 py-1 text-[11px] font-medium rounded-md transition-colors ${
-                                            officeMode === '3d'
-                                                ? 'bg-zinc-700 text-zinc-100'
-                                                : 'text-zinc-500 hover:text-zinc-300'
+                                            officeMode === '3d' ?
+                                                'bg-zinc-700 text-zinc-100'
+                                            :   'text-zinc-500 hover:text-zinc-300'
                                         }`}
                                     >
                                         3D
                                     </button>
                                 </div>
                                 <span className='text-[10px] text-zinc-600'>
-                                    {officeMode === 'svg' ? 'Pixel art (SVG)' : 'Three.js (experimental)'}
+                                    {officeMode === 'svg' ?
+                                        'Pixel art (SVG)'
+                                    :   'Three.js (experimental)'}
                                 </span>
                             </div>
 
                             <SectionErrorBoundary label='Office'>
-                                {officeMode === 'svg' ? (
+                                {officeMode === 'svg' ?
                                     <OfficeRoom />
-                                ) : (
-                                    <Office3DScene />
-                                )}
+                                :   <Office3DScene />}
                             </SectionErrorBoundary>
                             <SectionErrorBoundary label='Event Log'>
                                 <Suspense fallback={<EventLogFeedSkeleton />}>

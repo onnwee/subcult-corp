@@ -988,7 +988,11 @@ async function trackUsage(model, usage, durationMs, trackingContext) {
             )
         `;
     } catch (error) {
-        log.error('Failed to track LLM usage', { error, model, trackingContext });
+        log.error('Failed to track LLM usage', {
+            error,
+            model,
+            trackingContext,
+        });
     }
 }
 
@@ -1013,7 +1017,12 @@ async function llmGenerate(
     // ── 1) Try Ollama first (free, local inference) ──
     if (OLLAMA_BASE_URL) {
         for (const model of OLLAMA_MODELS) {
-            const text = await ollamaGenerate(messages, temperature, model, maxTokens);
+            const text = await ollamaGenerate(
+                messages,
+                temperature,
+                model,
+                maxTokens,
+            );
             if (text) {
                 log.debug('Ollama model succeeded', { model });
                 return text;
@@ -1279,6 +1288,7 @@ function buildSystemPrompt(
     interactionType,
     voiceModifiers,
     availableTools,
+    userQuestionContext,
 ) {
     const voice = VOICES[speakerId];
     if (!voice) return `You are ${speakerId}. Speak naturally and concisely.`;
@@ -1322,6 +1332,16 @@ function buildSystemPrompt(
         prompt += '\nPERSONALITY EVOLUTION (from accumulated experience):\n';
         prompt += voiceModifiers.map(m => `- ${m}`).join('\n');
         prompt += '\n';
+    }
+
+    // User question context — when a session was triggered by a user's question
+    if (userQuestionContext) {
+        prompt += `\n═══ AUDIENCE QUESTION ═══\n`;
+        if (userQuestionContext.isFirstSpeaker) {
+            prompt += `A member of the audience has posed a question to the collective: "${userQuestionContext.question}". Address this question directly in your response.\n`;
+        } else {
+            prompt += `This conversation was prompted by an audience question: "${userQuestionContext.question}". Respond naturally to the conversation flow while keeping the question in mind.\n`;
+        }
     }
 
     prompt += '\n';
@@ -1397,6 +1417,13 @@ async function orchestrateSession(session) {
     const history = [];
 
     const affinityMap = await loadAffinityMap();
+
+    // Detect user-submitted questions
+    const isUserQuestion = session.metadata?.source === 'user_question';
+    const userQuestion =
+        isUserQuestion ?
+            (session.metadata?.userQuestion ?? session.topic)
+        :   null;
 
     // Pre-load tools for each participant
     const agentToolsMap = {};
@@ -1487,6 +1514,9 @@ async function orchestrateSession(session) {
             interactionType,
             voiceModifiersMap[speaker],
             agentToolsMap[speaker],
+            userQuestion ?
+                { question: userQuestion, isFirstSpeaker: turn === 0 }
+            :   undefined,
         );
         const userPrompt = buildUserPrompt(
             session.topic,
@@ -1508,8 +1538,12 @@ async function orchestrateSession(session) {
                 formatConfig.temperature,
                 speakerTools.length > 0 ? speakerTools : null,
                 null, // models (use default)
-                250,  // maxTokens
-                { agentId: speaker, context: 'roundtable', sessionId: session.id },
+                250, // maxTokens
+                {
+                    agentId: speaker,
+                    context: 'roundtable',
+                    sessionId: session.id,
+                },
             );
         } catch (err) {
             // LLM failed after retries — end conversation gracefully with what we have
@@ -1725,7 +1759,9 @@ Respond with JSON only:
     try {
         let jsonStr = rawResponse.trim();
         // Strip markdown code fences
-        jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/m, '').replace(/\n?\s*```\s*$/m, '');
+        jsonStr = jsonStr
+            .replace(/^```(?:json)?\s*\n?/m, '')
+            .replace(/\n?\s*```\s*$/m, '');
         // Try direct parse first
         try {
             parsed = JSON.parse(jsonStr);
@@ -1739,7 +1775,9 @@ Respond with JSON only:
             }
         }
     } catch {
-        log.warn('Failed to parse LLM response as JSON', { response: rawResponse.substring(0, 200) });
+        log.warn('Failed to parse LLM response as JSON', {
+            response: rawResponse.substring(0, 200),
+        });
         return 0;
     }
 

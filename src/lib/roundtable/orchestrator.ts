@@ -40,6 +40,7 @@ function buildSystemPrompt(
     voiceModifiers?: string[],
     availableTools?: ToolDefinition[],
     primeDirective?: string,
+    userQuestionContext?: { question: string; isFirstSpeaker: boolean },
 ): string {
     const voice = getVoice(speakerId);
     if (!voice) {
@@ -113,6 +114,16 @@ function buildSystemPrompt(
         prompt += `- Do NOT mention tool names in your dialogue — speak as yourself, using the information\n`;
     }
 
+    // User question context — when a session was triggered by a user's question
+    if (userQuestionContext) {
+        prompt += `\n═══ AUDIENCE QUESTION ═══\n`;
+        if (userQuestionContext.isFirstSpeaker) {
+            prompt += `A member of the audience has posed a question to the collective: "${userQuestionContext.question}". Address this question directly in your response.\n`;
+        } else {
+            prompt += `This conversation was prompted by an audience question: "${userQuestionContext.question}". Respond naturally to the conversation flow while keeping the question in mind.\n`;
+        }
+    }
+
     prompt += `\n═══ RULES ═══\n`;
     prompt += `- Keep your response under 120 characters\n`;
     prompt += `- Speak as ${voice.displayName} (${voice.pronouns}) — no stage directions, no asterisks, no quotes\n`;
@@ -179,6 +190,16 @@ export async function orchestrateConversation(
 
     // Load affinity map once for the entire conversation
     const affinityMap = await loadAffinityMap();
+
+    // Detect user-submitted questions
+    const isUserQuestion =
+        (session.metadata as Record<string, unknown>)?.source ===
+        'user_question';
+    const userQuestion =
+        isUserQuestion ?
+            (((session.metadata as Record<string, unknown>)
+                ?.userQuestion as string) ?? session.topic)
+        :   null;
 
     // Load prime directive once per conversation (best-effort)
     let primeDirective = '';
@@ -278,6 +299,9 @@ export async function orchestrateConversation(
             voiceModifiersMap.get(speaker),
             agentToolsMap.get(speaker),
             primeDirective,
+            userQuestion ?
+                { question: userQuestion, isFirstSpeaker: turn === 0 }
+            :   undefined,
         );
         const userPrompt = buildUserPrompt(
             session.topic,
@@ -420,7 +444,10 @@ export async function orchestrateConversation(
 
         // Synthesize artifact from conversation
         try {
-            const artifactSessionId = await synthesizeArtifact(session, history);
+            const artifactSessionId = await synthesizeArtifact(
+                session,
+                history,
+            );
             if (artifactSessionId) {
                 log.info('Artifact synthesis queued', {
                     sessionId: session.id,
@@ -428,7 +455,10 @@ export async function orchestrateConversation(
                 });
             }
         } catch (err) {
-            log.error('Artifact synthesis failed', { error: err, sessionId: session.id });
+            log.error('Artifact synthesis failed', {
+                error: err,
+                sessionId: session.id,
+            });
         }
     }
 
@@ -446,9 +476,11 @@ export async function enqueueConversation(options: {
     scheduleSlot?: string;
     scheduledFor?: string;
     model?: string;
+    source?: string;
+    metadata?: Record<string, unknown>;
 }): Promise<string> {
     const [row] = await sql<[{ id: string }]>`
-        INSERT INTO ops_roundtable_sessions (format, topic, participants, status, schedule_slot, scheduled_for, model)
+        INSERT INTO ops_roundtable_sessions (format, topic, participants, status, schedule_slot, scheduled_for, model, source, metadata)
         VALUES (
             ${options.format},
             ${options.topic},
@@ -456,7 +488,9 @@ export async function enqueueConversation(options: {
             'pending',
             ${options.scheduleSlot ?? null},
             ${options.scheduledFor ?? new Date().toISOString()},
-            ${options.model ?? null}
+            ${options.model ?? null},
+            ${options.source ?? null},
+            ${jsonb(options.metadata ?? {})}
         )
         RETURNING id
     `;

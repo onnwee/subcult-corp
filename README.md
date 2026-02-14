@@ -41,14 +41,14 @@ Conversations generate memories. Memories generate initiatives. Initiatives gene
 
 ## Agents
 
-| Agent       | Role        | Description                                                                                     |
-| ----------- | ----------- | ----------------------------------------------------------------------------------------------- |
-| **Chora**   | Analyst     | Makes systems legible. Diagnoses structure, exposes assumptions, traces causality.               |
-| **Subrosa** | Protector   | Preserves agency under asymmetry. Evaluates risk, protects optionality. Has veto power.         |
-| **Thaum**   | Innovator   | Restores motion when thought stalls. Disrupts self-sealing explanations, reframes problems.     |
-| **Praxis**  | Executor    | Ends deliberation responsibly. Translates intent to action, owns consequences.                  |
-| **Mux**     | Operations  | Operational labor. Drafts, formats, transcribes, packages. The clipboard.                       |
-| **Primus**  | Sovereign   | Cold, strategic, minimal. Speaks in mandates. Invoked for mission drift and existential calls.  |
+| Agent       | Role       | Description                                                                                    |
+| ----------- | ---------- | ---------------------------------------------------------------------------------------------- |
+| **Chora**   | Analyst    | Makes systems legible. Diagnoses structure, exposes assumptions, traces causality.             |
+| **Subrosa** | Protector  | Preserves agency under asymmetry. Evaluates risk, protects optionality. Has veto power.        |
+| **Thaum**   | Innovator  | Restores motion when thought stalls. Disrupts self-sealing explanations, reframes problems.    |
+| **Praxis**  | Executor   | Ends deliberation responsibly. Translates intent to action, owns consequences.                 |
+| **Mux**     | Operations | Operational labor. Drafts, formats, transcribes, packages. The clipboard.                      |
+| **Primus**  | Sovereign  | Cold, strategic, minimal. Speaks in mandates. Invoked for mission drift and existential calls. |
 
 Each agent has a unique voice, personality quirks, failure modes, and evolving relationship dynamics with every other agent.
 
@@ -58,31 +58,31 @@ Agents execute tools natively via the unified worker and a sandboxed toolbox con
 
 ### Tools
 
-| Tool | Description |
-| ---- | ----------- |
-| `bash` | Execute shell commands in the toolbox container |
-| `web_search` | Search the web via Brave Search API |
-| `web_fetch` | Fetch a URL and convert to markdown |
-| `file_read` | Read files from the shared `/workspace` volume |
-| `file_write` | Write files to `/workspace` (ACL-enforced per agent) |
-| `memory_search` | Semantic similarity search over agent memories (pgvector) |
-| `spawn_droid` | Spawn a sub-agent with a scoped toolset for delegated tasks |
-| `send_to_agent` | Send a message to another agent |
-| `check_droid` | Check the status of a spawned droid |
+| Tool            | Description                                                 |
+| --------------- | ----------------------------------------------------------- |
+| `bash`          | Execute shell commands in the toolbox container             |
+| `web_search`    | Search the web via Brave Search API                         |
+| `web_fetch`     | Fetch a URL and convert to markdown                         |
+| `file_read`     | Read files from the shared `/workspace` volume              |
+| `file_write`    | Write files to `/workspace` (ACL-enforced per agent)        |
+| `memory_search` | Semantic similarity search over agent memories (pgvector)   |
+| `spawn_droid`   | Spawn a sub-agent with a scoped toolset for delegated tasks |
+| `send_to_agent` | Send a message to another agent                             |
+| `check_droid`   | Check the status of a spawned droid                         |
 
 ### Agent Tool Access
 
-| Tool           | Chora | Subrosa | Thaum | Praxis | Mux | Primus |
-| -------------- | ----- | ------- | ----- | ------ | --- | ------ |
-| bash | — | — | — | ✓ | ✓ | — |
-| web_search | ✓ | ✓ | ✓ | ✓ | — | — |
-| web_fetch | ✓ | — | ✓ | ✓ | ✓ | — |
-| file_read | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| file_write | — | — | — | ✓ | ✓ | ✓ |
-| memory_search | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| spawn_droid | ✓ | — | ✓ | ✓ | ✓ | ✓ |
-| send_to_agent | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| check_droid | ✓ | — | ✓ | ✓ | ✓ | ✓ |
+| Tool          | Chora | Subrosa | Thaum | Praxis | Mux | Primus |
+| ------------- | ----- | ------- | ----- | ------ | --- | ------ |
+| bash          | —     | —       | —     | ✓      | ✓   | —      |
+| web_search    | ✓     | ✓       | ✓     | ✓      | —   | —      |
+| web_fetch     | ✓     | —       | ✓     | ✓      | ✓   | —      |
+| file_read     | ✓     | ✓       | ✓     | ✓      | ✓   | ✓      |
+| file_write    | —     | —       | —     | ✓      | ✓   | ✓      |
+| memory_search | ✓     | ✓       | ✓     | ✓      | ✓   | ✓      |
+| spawn_droid   | ✓     | —       | ✓     | ✓      | ✓   | ✓      |
+| send_to_agent | ✓     | ✓       | ✓     | ✓      | ✓   | ✓      |
+| check_droid   | ✓     | —       | ✓     | ✓      | ✓   | ✓      |
 
 ### Agent Sessions
 
@@ -174,62 +174,62 @@ make typecheck       # tsc --noEmit
 
 Run `make help` for the full list. Highlights:
 
-| Command              | Description                              |
-| -------------------- | ---------------------------------------- |
-| `make up`            | Build and start all containers           |
-| `make down`          | Stop all containers                      |
-| `make rebuild`       | Force rebuild and recreate               |
-| `make logs`          | Tail all container logs                  |
-| `make logs-app`      | Tail Next.js app logs                    |
-| `make logs-db`       | Tail PostgreSQL logs                     |
-| `make db-migrate`    | Run all SQL migrations                   |
-| `make db-shell`      | Open psql shell                          |
-| `make seed`          | Run all seed scripts                     |
-| `make verify`        | Launch verification checks               |
-| `make heartbeat`     | Trigger heartbeat via Docker             |
+| Command           | Description                    |
+| ----------------- | ------------------------------ |
+| `make up`         | Build and start all containers |
+| `make down`       | Stop all containers            |
+| `make rebuild`    | Force rebuild and recreate     |
+| `make logs`       | Tail all container logs        |
+| `make logs-app`   | Tail Next.js app logs          |
+| `make logs-db`    | Tail PostgreSQL logs           |
+| `make db-migrate` | Run all SQL migrations         |
+| `make db-shell`   | Open psql shell                |
+| `make seed`       | Run all seed scripts           |
+| `make verify`     | Launch verification checks     |
+| `make heartbeat`  | Trigger heartbeat via Docker   |
 
 ## API Routes
 
-| Route                 | Method   | Description                                              |
-| --------------------- | -------- | -------------------------------------------------------- |
-| `/api/ops/heartbeat`  | GET      | System pulse — triggers, reactions, recovery, cron eval  |
-| `/api/ops/proposals`  | POST/GET | Submit or list proposals                                 |
-| `/api/ops/missions`   | GET      | List missions with steps                                 |
-| `/api/ops/events`     | GET      | Event stream                                             |
-| `/api/ops/roundtable` | POST/GET | Trigger or list conversations                            |
-| `/api/ops/turns`      | GET      | List conversation turns                                  |
-| `/api/ops/steps`      | GET      | List mission steps                                       |
-| `/api/ops/stats`      | GET      | System statistics                                        |
-| `/api/ops/system`     | GET      | System status and policy info                            |
-| `/api/ops/costs`      | GET      | LLM cost aggregation and per-agent breakdown             |
-| `/api/ops/memory`     | GET      | Agent memory search and retrieval                        |
-| `/api/ops/relationships` | GET      | Agent relationship data                                  |
+| Route                    | Method   | Description                                             |
+| ------------------------ | -------- | ------------------------------------------------------- |
+| `/api/ops/heartbeat`     | GET      | System pulse — triggers, reactions, recovery, cron eval |
+| `/api/ops/proposals`     | POST/GET | Submit or list proposals                                |
+| `/api/ops/missions`      | GET      | List missions with steps                                |
+| `/api/ops/events`        | GET      | Event stream                                            |
+| `/api/ops/roundtable`    | POST/GET | Trigger or list conversations                           |
+| `/api/ops/turns`         | GET      | List conversation turns                                 |
+| `/api/ops/steps`         | GET      | List mission steps                                      |
+| `/api/ops/stats`         | GET      | System statistics                                       |
+| `/api/ops/system`        | GET      | System status and policy info                           |
+| `/api/ops/costs`         | GET      | LLM cost aggregation and per-agent breakdown            |
+| `/api/ops/memory`        | GET      | Agent memory search and retrieval                       |
+| `/api/ops/relationships` | GET      | Agent relationship data                                 |
 
 ## Database Schema
 
 22 tables across `db/migrations/` (001 → 022):
 
-| Table                       | Purpose                                       |
-| --------------------------- | --------------------------------------------- |
-| `ops_mission_proposals`     | Agent proposals (requests for work)           |
-| `ops_missions`              | Approved missions                             |
-| `ops_mission_steps`         | Execution steps within missions (+ deps)      |
-| `ops_agent_events`          | Event stream (everything that happens)        |
-| `ops_policy`                | Key-value policy configuration                |
-| `ops_trigger_rules`         | Conditions evaluated each heartbeat           |
-| `ops_agent_reactions`       | Agent-to-agent reaction queue                 |
-| `ops_action_runs`           | Audit log for heartbeat runs                  |
-| `ops_roundtable_sessions`   | Conversation sessions (worker queue)          |
-| `ops_roundtable_turns`      | Individual dialogue turns                     |
-| `ops_agent_memory`          | Agent memories with confidence + pgvector embeddings  |
-| `ops_agent_relationships`   | Pairwise affinity between agents              |
-| `ops_initiative_queue`      | Self-generated work items                     |
-| `ops_agent_registry`        | Agent metadata and configuration              |
-| `ops_agent_skills`          | Agent skill/tool definitions                  |
-| `ops_llm_usage`             | LLM cost and token tracking                   |
-| `ops_cron_schedules`        | Scheduled agent sessions (cron expressions)   |
-| `ops_agent_sessions`        | Tool-augmented agent execution records        |
-| `ops_projects`              | Project tracking and metadata                 |
+| Table                     | Purpose                                              |
+| ------------------------- | ---------------------------------------------------- |
+| `ops_mission_proposals`   | Agent proposals (requests for work)                  |
+| `ops_missions`            | Approved missions                                    |
+| `ops_mission_steps`       | Execution steps within missions (+ deps)             |
+| `ops_agent_events`        | Event stream (everything that happens)               |
+| `ops_policy`              | Key-value policy configuration                       |
+| `ops_trigger_rules`       | Conditions evaluated each heartbeat                  |
+| `ops_agent_reactions`     | Agent-to-agent reaction queue                        |
+| `ops_action_runs`         | Audit log for heartbeat runs                         |
+| `ops_roundtable_sessions` | Conversation sessions (worker queue)                 |
+| `ops_roundtable_turns`    | Individual dialogue turns                            |
+| `ops_agent_memory`        | Agent memories with confidence + pgvector embeddings |
+| `ops_agent_relationships` | Pairwise affinity between agents                     |
+| `ops_initiative_queue`    | Self-generated work items                            |
+| `ops_agent_registry`      | Agent metadata and configuration                     |
+| `ops_agent_skills`        | Agent skill/tool definitions                         |
+| `ops_llm_usage`           | LLM cost and token tracking                          |
+| `ops_cron_schedules`      | Scheduled agent sessions (cron expressions)          |
+| `ops_agent_sessions`      | Tool-augmented agent execution records               |
+| `ops_projects`            | Project tracking and metadata                        |
 
 ## Key Concepts
 
@@ -274,12 +274,12 @@ log.error('Something broke', { error: err });
 
 A single worker process polls 4 queues with staggered intervals:
 
-| Queue | Interval | Source |
-| ----- | -------- | ------ |
-| Agent sessions | 15s | Cron schedules, API, inter-agent messages |
-| Roundtable conversations | 30s | Heartbeat triggers, API |
-| Mission steps | 60s | Approved missions |
-| Initiative proposals | 60s | Memory-driven initiative generation |
+| Queue                    | Interval | Source                                    |
+| ------------------------ | -------- | ----------------------------------------- |
+| Agent sessions           | 15s      | Cron schedules, API, inter-agent messages |
+| Roundtable conversations | 30s      | Heartbeat triggers, API                   |
+| Mission steps            | 60s      | Approved missions                         |
+| Initiative proposals     | 60s      | Memory-driven initiative generation       |
 
 All queues use `FOR UPDATE SKIP LOCKED` for atomic claiming. The worker imports directly from `src/lib/` — no code duplication.
 
@@ -338,21 +338,21 @@ deploy/systemd/               # systemd service files (legacy)
 
 Development is tracked across 17 epics and 114 issues. See [issue #114](https://github.com/subculture-collective/subcult-corp/issues/114) for the full roadmap in dependency order.
 
-| Phase | Epic | Status |
-| ----- | ---- | ------ |
-| 0 | Structured Logging | Foundation |
-| 1 | Cost Tracker | In progress |
-| 2 | SSE Real-time Events | Planned |
-| 3 | Memory & Relationship Explorer | Planned |
-| 4 | Ask Room | Planned |
-| 5 | Sanctum — Multi-Agent Chat | Planned |
-| 6 | Daily Digest & Reporting | Planned |
-| 7 | Content Pipeline | Planned |
-| 8 | Replay System | Planned |
-| 9 | Governance Dashboard | Planned |
-| 10 | Text-to-Speech | Planned |
-| 11 | Dream Cycles | Planned |
-| 12 | Rebellion Protocol | Planned |
-| 13 | Audience Mode | Planned |
-| 14 | Agent-Designed Agents | Planned |
-| 15 | Memory Archaeology | Planned |
+| Phase | Epic                           | Status      |
+| ----- | ------------------------------ | ----------- |
+| 0     | Structured Logging             | Foundation  |
+| 1     | Cost Tracker                   | In progress |
+| 2     | SSE Real-time Events           | Planned     |
+| 3     | Memory & Relationship Explorer | Planned     |
+| 4     | Ask Room                       | Planned     |
+| 5     | Sanctum — Multi-Agent Chat     | Planned     |
+| 6     | Daily Digest & Reporting       | Planned     |
+| 7     | Content Pipeline               | Planned     |
+| 8     | Replay System                  | Planned     |
+| 9     | Governance Dashboard           | Planned     |
+| 10    | Text-to-Speech                 | Planned     |
+| 11    | Dream Cycles                   | Planned     |
+| 12    | Rebellion Protocol             | Planned     |
+| 13    | Audience Mode                  | Planned     |
+| 14    | Agent-Designed Agents          | Planned     |
+| 15    | Memory Archaeology             | Planned     |
