@@ -782,7 +782,6 @@ export function useDigest(date?: string) {
 
     return { digest, digests, loading, error, refetch };
 }
-
 // ─── useContent — fetch + poll content drafts ───
 
 export type ContentType =

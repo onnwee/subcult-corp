@@ -87,9 +87,21 @@ function getOllamaModels(): OllamaModelSpec[] {
     // Cloud models via ollama.com (fast, capable, free)
     if (OLLAMA_API_KEY) {
         models.push(
-            { model: 'deepseek-v3.2:cloud', baseUrl: OLLAMA_CLOUD_URL, apiKey: OLLAMA_API_KEY },
-            { model: 'kimi-k2.5:cloud', baseUrl: OLLAMA_CLOUD_URL, apiKey: OLLAMA_API_KEY },
-            { model: 'gemini-3-flash-preview:latest', baseUrl: OLLAMA_CLOUD_URL, apiKey: OLLAMA_API_KEY },
+            {
+                model: 'deepseek-v3.2:cloud',
+                baseUrl: OLLAMA_CLOUD_URL,
+                apiKey: OLLAMA_API_KEY,
+            },
+            {
+                model: 'kimi-k2.5:cloud',
+                baseUrl: OLLAMA_CLOUD_URL,
+                apiKey: OLLAMA_API_KEY,
+            },
+            {
+                model: 'gemini-3-flash-preview:latest',
+                baseUrl: OLLAMA_CLOUD_URL,
+                apiKey: OLLAMA_API_KEY,
+            },
         );
     }
 
@@ -138,21 +150,27 @@ async function ollamaChat(
     const maxToolRounds = options?.maxToolRounds ?? 3;
 
     // Convert tools to OpenAI function-calling format
-    const openaiTools = tools && tools.length > 0
-        ? tools.map(t => ({
-            type: 'function' as const,
-            function: {
-                name: t.name,
-                description: t.description,
-                parameters: t.parameters,
-            },
-        }))
-        : undefined;
+    const openaiTools =
+        tools && tools.length > 0 ?
+            tools.map(t => ({
+                type: 'function' as const,
+                function: {
+                    name: t.name,
+                    description: t.description,
+                    parameters: t.parameters,
+                },
+            }))
+        :   undefined;
 
     for (const spec of models) {
         const result = await ollamaChatWithModel(
-            spec, messages, temperature, maxTokens,
-            tools, openaiTools, maxToolRounds,
+            spec,
+            messages,
+            temperature,
+            maxTokens,
+            tools,
+            openaiTools,
+            maxToolRounds,
         );
         if (result) return result;
     }
@@ -167,13 +185,24 @@ async function ollamaChatWithModel(
     temperature: number,
     maxTokens: number,
     tools: ToolDefinition[] | undefined,
-    openaiTools: Array<{ type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }> | undefined,
+    openaiTools:
+        | Array<{
+              type: 'function';
+              function: {
+                  name: string;
+                  description: string;
+                  parameters: Record<string, unknown>;
+              };
+          }>
+        | undefined,
     maxToolRounds: number,
 ): Promise<OllamaChatResult | null> {
     const { model, baseUrl, apiKey } = spec;
     const toolCallRecords: ToolCallRecord[] = [];
 
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+    };
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
     // Working copy of messages for the tool loop
@@ -185,7 +214,10 @@ async function ollamaChatWithModel(
     for (let round = 0; round <= maxToolRounds; round++) {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+            const timeoutId = setTimeout(
+                () => controller.abort(),
+                OLLAMA_TIMEOUT_MS,
+            );
 
             const body: Record<string, unknown> = {
                 model,
@@ -207,20 +239,26 @@ async function ollamaChatWithModel(
 
             clearTimeout(timeoutId);
             if (!response.ok) {
-                log.debug('Ollama model failed', { model, baseUrl, status: response.status });
+                log.debug('Ollama model failed', {
+                    model,
+                    baseUrl,
+                    status: response.status,
+                });
                 return null;
             }
 
             const data = (await response.json()) as {
-                choices?: [{
-                    message?: {
-                        content?: string;
-                        tool_calls?: Array<{
-                            id: string;
-                            function: { name: string; arguments: string };
-                        }>;
-                    };
-                }];
+                choices?: [
+                    {
+                        message?: {
+                            content?: string;
+                            tool_calls?: Array<{
+                                id: string;
+                                function: { name: string; arguments: string };
+                            }>;
+                        };
+                    },
+                ];
             };
 
             const msg = data.choices?.[0]?.message;
@@ -232,7 +270,8 @@ async function ollamaChatWithModel(
             if (!pendingToolCalls || pendingToolCalls.length === 0) {
                 const raw = msg.content ?? '';
                 const text = stripThinking(raw).trim();
-                if (text.length === 0 && toolCallRecords.length === 0) return null;
+                if (text.length === 0 && toolCallRecords.length === 0)
+                    return null;
                 return { text, toolCalls: toolCallRecords, model };
             }
 
@@ -260,7 +299,10 @@ async function ollamaChatWithModel(
                         arguments: args,
                         result,
                     });
-                    resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+                    resultStr =
+                        typeof result === 'string' ? result : (
+                            JSON.stringify(result)
+                        );
                 } else {
                     resultStr = `Tool ${tc.function.name} not available`;
                 }
@@ -272,7 +314,10 @@ async function ollamaChatWithModel(
                 });
             }
         } catch (err) {
-            log.debug('Ollama chat error', { model, error: (err as Error).message });
+            log.debug('Ollama chat error', {
+                model,
+                error: (err as Error).message,
+            });
             return null;
         }
     }
@@ -578,7 +623,10 @@ export async function llmGenerateWithTools(
                 Date.now() - startTime,
                 trackingContext,
             );
-            return { text: ollamaResult.text, toolCalls: ollamaResult.toolCalls };
+            return {
+                text: ollamaResult.text,
+                toolCalls: ollamaResult.toolCalls,
+            };
         }
     }
 
