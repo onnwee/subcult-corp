@@ -33,6 +33,16 @@ const triggers = [
         enabled: true,
     },
 
+    // ─── Content Pipeline: Auto-Review ───
+    {
+        name: 'Content draft auto-review (Subrosa)',
+        trigger_event: 'content_draft_created',
+        conditions: { lookback_minutes: 30 },
+        action_config: { target_agent: 'subrosa', action: 'content_review' },
+        cooldown_minutes: 10,
+        enabled: true,
+    },
+
     // ─── Subrosa: Risk Assessment ───
     {
         name: 'Public content risk check (Subrosa)',

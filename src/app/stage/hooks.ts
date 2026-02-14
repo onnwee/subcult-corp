@@ -783,6 +783,79 @@ export function useDigest(date?: string) {
     return { digest, digests, loading, error, refetch };
 }
 
+// ─── useContent — fetch + poll content drafts ───
+
+export type ContentType = 'essay' | 'thread' | 'statement' | 'poem' | 'manifesto';
+export type ContentStatus = 'draft' | 'review' | 'approved' | 'rejected' | 'published';
+
+export interface ContentDraft {
+    id: string;
+    author_agent: string;
+    content_type: ContentType;
+    title: string;
+    body: string;
+    status: ContentStatus;
+    review_session_id: string | null;
+    reviewer_notes: { reviewer: string; verdict: string; notes: string }[];
+    source_session_id: string | null;
+    published_at: string | null;
+    metadata: Record<string, unknown>;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface ContentFilters {
+    status?: ContentStatus;
+    author?: string;
+    content_type?: ContentType;
+    limit?: number;
+}
+
+export function useContent(filters?: ContentFilters) {
+    const [drafts, setDrafts] = useState<ContentDraft[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [refreshKey, setRefreshKey] = useState(0);
+
+    const serializedFilters = JSON.stringify(filters ?? {});
+
+    const fetchDrafts = useCallback(async () => {
+        try {
+            const params = new URLSearchParams();
+            const f: ContentFilters = JSON.parse(serializedFilters);
+
+            if (f.status) params.set('status', f.status);
+            if (f.author) params.set('author', f.author);
+            if (f.content_type) params.set('content_type', f.content_type);
+            if (f.limit) params.set('limit', String(f.limit));
+
+            const data = await fetchJson<{ drafts: ContentDraft[] }>(
+                `/api/ops/content?${params}`,
+            );
+            setDrafts(data.drafts);
+            setError(null);
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setLoading(false);
+        }
+    }, [serializedFilters]);
+
+    useEffect(() => {
+        setLoading(true);
+        fetchDrafts();
+    }, [fetchDrafts, refreshKey]);
+
+    // Poll every 30 seconds
+    useInterval(() => {
+        fetchDrafts();
+    }, 30000);
+
+    const refetch = useCallback(() => setRefreshKey(k => k + 1), []);
+
+    return { drafts, loading, error, refetch };
+}
+
 // ─── useInterval — for animations and polling ───
 
 export function useInterval(callback: () => void, delay: number | null) {

@@ -13,6 +13,7 @@ import { SystemLogs } from './SystemLogs';
 import { CostTracker } from './CostTracker';
 import { MemoryExplorer } from './MemoryExplorer';
 import { RelationshipGraph } from './RelationshipGraph';
+import { ContentPipeline } from './ContentPipeline';
 import { StageErrorBoundary, SectionErrorBoundary } from './StageErrorBoundary';
 import { AskTheRoom } from './AskTheRoom';
 import { DailyDigest } from './DailyDigest';
@@ -163,6 +164,13 @@ export default function StagePage() {
                     {view === 'relationships' && (
                         <SectionErrorBoundary label='Relationships'>
                             <RelationshipGraph />
+                        </SectionErrorBoundary>
+                    )}
+
+                    {/* ── Content View ── */}
+                    {view === 'content' && (
+                        <SectionErrorBoundary label='Content Pipeline'>
+                            <ContentPipeline />
                         </SectionErrorBoundary>
                     )}
 

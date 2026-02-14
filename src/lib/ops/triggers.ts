@@ -126,6 +126,8 @@ async function checkTrigger(rule: TriggerRule, defaults: TriggerDefaults): Promi
     switch (rule.trigger_event) {
         case 'mission_failed':
             return checkMissionFailed(conditions, targetAgent, actionType);
+        case 'content_draft_created':
+            return checkContentDraftCreated(conditions, targetAgent);
         case 'content_published':
             return checkContentPublished(conditions, targetAgent);
         case 'content_marked_public':
@@ -184,6 +186,73 @@ async function checkMissionFailed(
         };
     }
     return { fired: false };
+}
+
+async function checkContentDraftCreated(
+    conditions: Record<string, unknown>,
+    targetAgent: string,
+): Promise<TriggerCheckResult> {
+    const lookback = (conditions.lookback_minutes as number) ?? 30;
+    const cutoff = new Date(Date.now() - lookback * 60_000).toISOString();
+
+    // Find drafts in 'draft' status created recently that don't have a review session yet
+    const drafts = await sql<{ id: string; title: string; author_agent: string; body: string }[]>`
+        SELECT id, title, author_agent, LEFT(body, 500) as body
+        FROM ops_content_drafts
+        WHERE status = 'draft'
+          AND review_session_id IS NULL
+          AND created_at >= ${cutoff}
+        ORDER BY created_at ASC
+        LIMIT 1
+    `;
+
+    if (drafts.length === 0) {
+        return { fired: false };
+    }
+
+    const draft = drafts[0];
+
+    // Enqueue a content_review roundtable session
+    const topic = `Review content draft: "${draft.title}" by ${draft.author_agent}`;
+    const [session] = await sql<[{ id: string }]>`
+        INSERT INTO ops_roundtable_sessions (
+            format, topic, participants, status, scheduled_for, metadata
+        ) VALUES (
+            'content_review',
+            ${topic},
+            ARRAY['subrosa', 'chora', 'praxis'],
+            'pending',
+            NOW(),
+            ${sql.json({ draft_id: draft.id, draft_title: draft.title, author: draft.author_agent })}::jsonb
+        )
+        RETURNING id
+    `;
+
+    // Update draft status to 'review' and link the review session
+    await sql`
+        UPDATE ops_content_drafts
+        SET status = 'review',
+            review_session_id = ${session.id},
+            updated_at = NOW()
+        WHERE id = ${draft.id}
+    `;
+
+    log.info('Auto-review triggered for content draft', {
+        draftId: draft.id,
+        reviewSessionId: session.id,
+    });
+
+    return {
+        fired: true,
+        reason: `Content draft "${draft.title}" sent to review`,
+        proposal: {
+            agent_id: targetAgent,
+            title: `Content review initiated: ${draft.title}`,
+            description: `Roundtable review session created for draft by ${draft.author_agent}`,
+            proposed_steps: [{ kind: 'log_event' }],
+            source: 'trigger',
+        },
+    };
 }
 
 async function checkContentPublished(

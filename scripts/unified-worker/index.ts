@@ -134,6 +134,41 @@ async function pollRoundtables(): Promise<boolean> {
 
     try {
         await orchestrateConversation(session, true);
+
+        // Content Pipeline: extract content from writing_room sessions
+        if (session.format === 'writing_room') {
+            try {
+                const { extractContentFromSession } = await import('../../src/lib/ops/content-pipeline');
+                const draftId = await extractContentFromSession(session.id);
+                if (draftId) {
+                    log.info('Content draft extracted from writing_room', {
+                        sessionId: session.id,
+                        draftId,
+                    });
+                }
+            } catch (extractErr) {
+                // Non-fatal — content extraction should never stall the worker
+                log.error('Content extraction failed (non-fatal)', {
+                    error: extractErr,
+                    sessionId: session.id,
+                });
+            }
+        }
+
+        // Content Pipeline: process review results from content_review sessions
+        if (session.format === 'content_review') {
+            try {
+                const { processReviewSession } = await import('../../src/lib/ops/content-pipeline');
+                await processReviewSession(session.id);
+                log.info('Content review processed', { sessionId: session.id });
+            } catch (reviewErr) {
+                // Non-fatal — review processing should never stall the worker
+                log.error('Content review processing failed (non-fatal)', {
+                    error: reviewErr,
+                    sessionId: session.id,
+                });
+            }
+        }
     } catch (err) {
         log.error('Roundtable orchestration failed', {
             error: err,
