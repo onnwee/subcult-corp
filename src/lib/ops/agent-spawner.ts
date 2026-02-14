@@ -47,12 +47,57 @@ const SPAWN_COLORS = [
     '#f9e2af', // yellow
 ];
 
+// ─── Validation helpers ───
+
+/**
+ * Validates and normalizes the personality object from a proposal.
+ * Ensures all required fields are present with proper defaults.
+ */
+function validateAndNormalizePersonality(
+    personality: unknown,
+): AgentPersonality {
+    if (!personality || typeof personality !== 'object') {
+        throw new Error(
+            'Invalid personality: must be a non-null object',
+        );
+    }
+
+    const p = personality as Record<string, unknown>;
+
+    // Validate and extract required fields with defaults
+    const tone =
+        typeof p.tone === 'string' && p.tone.trim()
+            ? p.tone.trim()
+            : 'neutral and balanced';
+
+    const traits = Array.isArray(p.traits)
+        ? p.traits.filter((t): t is string => typeof t === 'string')
+        : [];
+
+    const speaking_style =
+        typeof p.speaking_style === 'string' && p.speaking_style.trim()
+            ? p.speaking_style.trim()
+            : 'clear and direct';
+
+    const emoji =
+        typeof p.emoji === 'string' && p.emoji.trim()
+            ? p.emoji.trim()
+            : undefined;
+
+    return {
+        tone,
+        traits,
+        speaking_style,
+        emoji,
+    };
+}
+
 // ─── Generate workspace file content ───
 
 async function generateIdentityMarkdown(
     proposal: AgentProposal,
 ): Promise<string> {
-    const personality = proposal.personality as AgentPersonality;
+    const personality = validateAndNormalizePersonality(proposal.personality);
     const nameUpper = proposal.agent_name.toUpperCase();
     const nameCapitalized =
         proposal.agent_name.charAt(0).toUpperCase() +
@@ -97,7 +142,7 @@ Agent details:
 }
 
 async function generateSoulMarkdown(proposal: AgentProposal): Promise<string> {
-    const personality = proposal.personality as AgentPersonality;
+    const personality = validateAndNormalizePersonality(proposal.personality);
     const nameCapitalized =
         proposal.agent_name.charAt(0).toUpperCase() +
         proposal.agent_name.slice(1);
@@ -153,7 +198,7 @@ export async function prepareSpawn(proposalId: string): Promise<SpawnPreview> {
         );
     }
 
-    const personality = proposal.personality as AgentPersonality;
+    const personality = validateAndNormalizePersonality(proposal.personality);
     const nameUpper = proposal.agent_name.toUpperCase();
     const nameCapitalized =
         proposal.agent_name.charAt(0).toUpperCase() +
