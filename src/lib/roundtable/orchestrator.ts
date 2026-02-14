@@ -322,12 +322,12 @@ export async function orchestrateConversation(
                 ],
                 temperature: format.temperature,
                 maxTokens: 100,
-                model: session.model ?? format.defaultModel ?? undefined,
+                model: session.model ?? undefined,
                 tools: speakerTools.length > 0 ? speakerTools : undefined,
                 maxToolRounds: 2,
                 trackingContext: {
                     agentId: speaker,
-                    context: 'roundtable',
+                    context: `roundtable:${session.format}`,
                     sessionId: session.id,
                 },
             });

@@ -414,6 +414,60 @@ var init_logger = __esm({
   }
 });
 
+// src/lib/llm/model-routing.ts
+async function resolveModels(context) {
+  if (!context) {
+    return await lookupOrDefault("default");
+  }
+  const exact = await lookupCached(context);
+  if (exact) return exact;
+  const colonIdx = context.indexOf(":");
+  if (colonIdx > 0) {
+    const prefix = context.slice(0, colonIdx);
+    const prefixResult = await lookupCached(prefix);
+    if (prefixResult) return prefixResult;
+  }
+  return await lookupOrDefault("default");
+}
+async function lookupCached(context) {
+  const cached = cache.get(context);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return cached.models.length > 0 ? cached.models : null;
+  }
+  const [row] = await sql`
+        SELECT models FROM ops_model_routing WHERE context = ${context}
+    `;
+  if (!row) {
+    cache.set(context, { models: [], ts: Date.now() });
+    return null;
+  }
+  cache.set(context, { models: row.models, ts: Date.now() });
+  return row.models;
+}
+async function lookupOrDefault(context) {
+  const result = await lookupCached(context);
+  return result ?? DEFAULT_MODELS;
+}
+var DEFAULT_MODELS, CACHE_TTL_MS, cache;
+var init_model_routing = __esm({
+  "src/lib/llm/model-routing.ts"() {
+    "use strict";
+    init_db();
+    DEFAULT_MODELS = [
+      "anthropic/claude-haiku-4.5",
+      "google/gemini-2.5-flash",
+      "openai/gpt-4.1-mini",
+      "deepseek/deepseek-v3.2",
+      "qwen/qwen3-235b-a22b",
+      "moonshotai/kimi-k2.5",
+      "anthropic/claude-sonnet-4.5"
+      // last resort — higher quality, higher cost
+    ];
+    CACHE_TTL_MS = 3e4;
+    cache = /* @__PURE__ */ new Map();
+  }
+});
+
 // src/lib/llm/client.ts
 var client_exports = {};
 __export(client_exports, {
@@ -426,6 +480,11 @@ function normalizeModel(id) {
   if (id === "openrouter/auto") return id;
   if (id.startsWith("openrouter/")) return id.slice("openrouter/".length);
   return id;
+}
+async function resolveModelsWithEnv(context) {
+  const models = await resolveModels(context);
+  if (!LLM_MODEL_ENV) return models;
+  return [LLM_MODEL_ENV, ...models.filter((m) => m !== LLM_MODEL_ENV)];
 }
 function getClient() {
   if (!_client) {
@@ -566,7 +625,8 @@ async function llmGenerate(options) {
     const text = await ollamaGenerate(messages, temperature);
     if (text) return text;
   }
-  const modelList = model ? [normalizeModel(model)] : LLM_MODELS.slice(0, MAX_MODELS_ARRAY);
+  const resolved = model ? [normalizeModel(model)] : await resolveModelsWithEnv(trackingContext?.context);
+  const modelList = resolved.slice(0, MAX_MODELS_ARRAY);
   const buildCallOpts = (spec) => {
     const isArray = Array.isArray(spec);
     const opts = {
@@ -613,7 +673,7 @@ async function llmGenerate(options) {
       throw new Error("OpenRouter rate limited \u2014 try again shortly");
     }
   }
-  for (const fallback of DEFAULT_MODELS) {
+  for (const fallback of resolved.slice(MAX_MODELS_ARRAY)) {
     try {
       const text = await tryCall(fallback);
       if (text) return text;
@@ -634,7 +694,8 @@ async function llmGenerateWithTools(options) {
   } = options;
   const client = getClient();
   const startTime = Date.now();
-  const modelList = model ? [normalizeModel(model)] : LLM_MODELS.slice(0, MAX_MODELS_ARRAY);
+  const resolved = model ? [normalizeModel(model)] : await resolveModelsWithEnv(trackingContext?.context);
+  const modelList = resolved.slice(0, MAX_MODELS_ARRAY);
   const systemMessage = messages.find((m) => m.role === "system");
   const conversationMessages = messages.filter((m) => m.role !== "system");
   const toolCallRecords = [];
@@ -715,7 +776,7 @@ function sanitizeDialogue(text, maxLength = 120) {
   }
   return cleaned;
 }
-var import_sdk, import_v4, log, OPENROUTER_API_KEY, DEFAULT_MODELS, MAX_MODELS_ARRAY, LLM_MODELS, _client, OLLAMA_BASE_URL, OLLAMA_TIMEOUT_MS, OLLAMA_MODEL;
+var import_sdk, import_v4, log, OPENROUTER_API_KEY, MAX_MODELS_ARRAY, LLM_MODEL_ENV, _client, OLLAMA_BASE_URL, OLLAMA_TIMEOUT_MS, OLLAMA_MODEL;
 var init_client = __esm({
   "src/lib/llm/client.ts"() {
     "use strict";
@@ -723,24 +784,14 @@ var init_client = __esm({
     import_v4 = require("zod/v4");
     init_db();
     init_logger();
+    init_model_routing();
     log = logger.child({ module: "llm" });
     OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY ?? "";
-    DEFAULT_MODELS = [
-      "anthropic/claude-haiku-4.5",
-      "google/gemini-2.5-flash",
-      "openai/gpt-4.1-mini",
-      "deepseek/deepseek-v3.2",
-      "qwen/qwen3-235b-a22b",
-      "moonshotai/kimi-k2.5",
-      "anthropic/claude-sonnet-4.5"
-      // last resort — higher quality, higher cost
-    ];
     MAX_MODELS_ARRAY = 3;
-    LLM_MODELS = (() => {
+    LLM_MODEL_ENV = (() => {
       const envModel = process.env.LLM_MODEL;
-      if (!envModel || envModel === "openrouter/auto") return DEFAULT_MODELS;
-      const normalized = normalizeModel(envModel);
-      return [normalized, ...DEFAULT_MODELS.filter((m) => m !== normalized)];
+      if (!envModel || envModel === "openrouter/auto") return null;
+      return normalizeModel(envModel);
     })();
     _client = null;
     OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "";
@@ -752,7 +803,7 @@ var init_client = __esm({
 // src/lib/ops/policy.ts
 async function getPolicy(key) {
   const cached = policyCache.get(key);
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS2) {
     return cached.value;
   }
   const [row] = await sql`
@@ -762,12 +813,12 @@ async function getPolicy(key) {
   policyCache.set(key, { value, ts: Date.now() });
   return value;
 }
-var CACHE_TTL_MS, policyCache;
+var CACHE_TTL_MS2, policyCache;
 var init_policy = __esm({
   "src/lib/ops/policy.ts"() {
     "use strict";
     init_db();
-    CACHE_TTL_MS = 3e4;
+    CACHE_TTL_MS2 = 3e4;
     policyCache = /* @__PURE__ */ new Map();
   }
 });
@@ -2006,7 +2057,7 @@ async function synthesizeArtifact(session, history) {
 // src/lib/ops/voice-evolution.ts
 init_db();
 var voiceModifierCache = /* @__PURE__ */ new Map();
-var CACHE_TTL_MS2 = 10 * 6e4;
+var CACHE_TTL_MS3 = 10 * 6e4;
 async function deriveVoiceModifiers(agentId) {
   const cached = voiceModifierCache.get(agentId);
   if (cached && cached.expiresAt > Date.now()) {
@@ -2016,7 +2067,7 @@ async function deriveVoiceModifiers(agentId) {
   if (stats.total < 5) {
     voiceModifierCache.set(agentId, {
       modifiers: [],
-      expiresAt: Date.now() + CACHE_TTL_MS2
+      expiresAt: Date.now() + CACHE_TTL_MS3
     });
     return [];
   }
@@ -2048,7 +2099,7 @@ async function deriveVoiceModifiers(agentId) {
   const result = modifiers.slice(0, 3);
   voiceModifierCache.set(agentId, {
     modifiers: result,
-    expiresAt: Date.now() + CACHE_TTL_MS2
+    expiresAt: Date.now() + CACHE_TTL_MS3
   });
   return result;
 }
@@ -2159,11 +2210,11 @@ async function execInToolbox(command, timeoutMs = DEFAULT_TIMEOUT_MS) {
 
 // src/lib/ops/prime-directive.ts
 var DIRECTIVE_PATH = "/workspace/shared/prime-directive.md";
-var CACHE_TTL_MS3 = 5 * 60 * 1e3;
+var CACHE_TTL_MS4 = 5 * 60 * 1e3;
 var cachedDirective = null;
 var cacheTime = 0;
 async function loadPrimeDirective() {
-  if (cachedDirective !== null && Date.now() - cacheTime < CACHE_TTL_MS3) {
+  if (cachedDirective !== null && Date.now() - cacheTime < CACHE_TTL_MS4) {
     return cachedDirective;
   }
   const result = await execInToolbox(`cat '${DIRECTIVE_PATH}' 2>/dev/null || echo ''`, 5e3);
@@ -3089,12 +3140,12 @@ async function orchestrateConversation(session, delayBetweenTurns = true) {
         ],
         temperature: format.temperature,
         maxTokens: 100,
-        model: session.model ?? format.defaultModel ?? void 0,
+        model: session.model ?? void 0,
         tools: speakerTools.length > 0 ? speakerTools : void 0,
         maxToolRounds: 2,
         trackingContext: {
           agentId: speaker,
-          context: "roundtable",
+          context: `roundtable:${session.format}`,
           sessionId: session.id
         }
       });

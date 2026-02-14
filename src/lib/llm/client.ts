@@ -13,6 +13,7 @@ import type {
 } from '../types';
 import { sql } from '@/lib/db';
 import { logger } from '@/lib/logger';
+import { resolveModels } from './model-routing';
 
 const log = logger.child({ module: 'llm' });
 
@@ -25,37 +26,22 @@ function normalizeModel(id: string): string {
     return id;
 }
 
-/**
- * Default models for SDK-native routing via `models` array.
- * OpenRouter tries each in order, falling back on provider errors / unavailability.
- * Ordered by speed/cost — fast cheap models first, heavier last resort.
- *
- * Heavy models (opus-4.6, gpt-5.2, deepseek-r1) excluded from default rotation
- * — available via LLM_MODEL env override for specific tasks.
- */
-const DEFAULT_MODELS = [
-    'anthropic/claude-haiku-4.5',
-    'google/gemini-2.5-flash',
-    'openai/gpt-4.1-mini',
-    'deepseek/deepseek-v3.2',
-    'qwen/qwen3-235b-a22b',
-    'moonshotai/kimi-k2.5',
-    'anthropic/claude-sonnet-4.5',  // last resort — higher quality, higher cost
-];
-
 /** OpenRouter limits the `models` array to 3 items. Slice for API calls; full list used by individual fallback loop. */
 const MAX_MODELS_ARRAY = 3;
 
-/**
- * Effective model list: if LLM_MODEL env is set to a specific model (not openrouter/auto),
- * prepend it to the default list. Otherwise use defaults only.
- */
-const LLM_MODELS: string[] = (() => {
+/** LLM_MODEL env override — prepended to resolved model list when set. */
+const LLM_MODEL_ENV: string | null = (() => {
     const envModel = process.env.LLM_MODEL;
-    if (!envModel || envModel === 'openrouter/auto') return DEFAULT_MODELS;
-    const normalized = normalizeModel(envModel);
-    return [normalized, ...DEFAULT_MODELS.filter(m => m !== normalized)];
+    if (!envModel || envModel === 'openrouter/auto') return null;
+    return normalizeModel(envModel);
 })();
+
+/** Resolve models from DB routing table, prepending LLM_MODEL env if set. */
+async function resolveModelsWithEnv(context?: string): Promise<string[]> {
+    const models = await resolveModels(context);
+    if (!LLM_MODEL_ENV) return models;
+    return [LLM_MODEL_ENV, ...models.filter((m: string) => m !== LLM_MODEL_ENV)];
+}
 
 let _client: OpenRouter | null = null;
 
@@ -284,8 +270,11 @@ export async function llmGenerate(
     }
 
     // ── Fall back to OpenRouter (cloud) ──
-    // Determine model list: specific override → single model, otherwise → native routing array (capped at 3 for OpenRouter)
-    const modelList = model ? [normalizeModel(model)] : LLM_MODELS.slice(0, MAX_MODELS_ARRAY);
+    // Resolve model list: explicit override → single model, otherwise → dynamic routing (DB + env + defaults)
+    const resolved = model
+        ? [normalizeModel(model)]
+        : await resolveModelsWithEnv(trackingContext?.context);
+    const modelList = resolved.slice(0, MAX_MODELS_ARRAY);
 
     const buildCallOpts = (spec: string | string[]): Record<string, unknown> => {
         const isArray = Array.isArray(spec);
@@ -344,8 +333,8 @@ export async function llmGenerate(
         // Other errors — fall through to individual model attempts
     }
 
-    // 2) If models array returned empty or errored, try each default model individually
-    for (const fallback of DEFAULT_MODELS) {
+    // 2) If models array returned empty or errored, try remaining models individually
+    for (const fallback of resolved.slice(MAX_MODELS_ARRAY)) {
         try {
             const text = await tryCall(fallback);
             if (text) return text;
@@ -377,7 +366,10 @@ export async function llmGenerateWithTools(
 
     const client = getClient();
     const startTime = Date.now();
-    const modelList = model ? [normalizeModel(model)] : LLM_MODELS.slice(0, MAX_MODELS_ARRAY);
+    const resolved = model
+        ? [normalizeModel(model)]
+        : await resolveModelsWithEnv(trackingContext?.context);
+    const modelList = resolved.slice(0, MAX_MODELS_ARRAY);
 
     const systemMessage = messages.find(m => m.role === 'system');
     const conversationMessages = messages.filter(m => m.role !== 'system');
