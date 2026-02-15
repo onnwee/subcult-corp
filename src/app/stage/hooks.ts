@@ -823,7 +823,7 @@ export interface ContentDraft {
     body: string;
     status: ContentStatus;
     review_session_id: string | null;
-    reviewer_notes: { reviewer: string; verdict: string; notes: string }[];
+    reviewer_notes: { reviewer: string; verdict: 'approve' | 'reject' | 'mixed'; notes: string }[];
     source_session_id: string | null;
     published_at: string | null;
     metadata: Record<string, unknown>;

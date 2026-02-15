@@ -4,6 +4,8 @@ import { sql, jsonb } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
+const MAX_NOTES_LENGTH = 5000;
+
 export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
@@ -54,6 +56,24 @@ export async function PATCH(req: NextRequest) {
                 { error: 'Missing required fields: id, status' },
                 { status: 400 },
             );
+        }
+
+        // Validate notes field type and length
+        if (body.notes !== undefined) {
+            if (typeof body.notes !== 'string') {
+                return NextResponse.json(
+                    { error: 'Notes field must be a string' },
+                    { status: 400 },
+                );
+            }
+            if (body.notes.length > MAX_NOTES_LENGTH) {
+                return NextResponse.json(
+                    {
+                        error: `Notes field too long (max ${MAX_NOTES_LENGTH} characters)`,
+                    },
+                    { status: 400 },
+                );
+            }
         }
 
         // Validate status value
@@ -115,10 +135,15 @@ export async function PATCH(req: NextRequest) {
 
         if (body.notes) {
             // Append note to reviewer_notes array
+            // Map status to verdict value
+            const verdict =
+                body.status === 'approved' ? 'approve'
+                : body.status === 'rejected' ? 'reject'
+                : 'mixed';
             await sql`
                 UPDATE ops_content_drafts
                 SET status = ${body.status},
-                    reviewer_notes = reviewer_notes || ${jsonb([{ reviewer: 'manual', verdict: body.status, notes: body.notes }])}::jsonb,
+                    reviewer_notes = reviewer_notes || ${jsonb([{ reviewer: 'manual', verdict, notes: body.notes }])}::jsonb,
                     ${body.status === 'published' ? sql`published_at = NOW(),` : sql``}
                     updated_at = NOW()
                 WHERE id = ${body.id}
