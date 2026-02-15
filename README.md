@@ -346,13 +346,13 @@ Development is tracked across 17 epics and 114 issues. See [issue #114](https://
 | 3     | Memory & Relationship Explorer | Planned     |
 | 4     | Ask Room                       | Planned     |
 | 5     | Sanctum — Multi-Agent Chat     | Planned     |
-| 6     | Daily Digest & Reporting       | Planned     |
-| 7     | Content Pipeline               | Planned     |
+| 6     | Daily Digest & Reporting       | ✅ Complete |
+| 7     | Content Pipeline               | ✅ Complete |
 | 8     | Replay System                  | Planned     |
 | 9     | Governance Dashboard           | Planned     |
 | 10    | Text-to-Speech                 | Planned     |
-| 11    | Dream Cycles                   | Planned     |
-| 12    | Rebellion Protocol             | Planned     |
+| 11    | Dream Cycles                   | ✅ Complete |
+| 12    | Rebellion Protocol             | ✅ Complete |
 | 13    | Audience Mode                  | Planned     |
 | 14    | Agent-Designed Agents          | Planned     |
-| 15    | Memory Archaeology             | Planned     |
+| 15    | Memory Archaeology             | ✅ Complete |
