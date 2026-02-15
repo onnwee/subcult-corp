@@ -110,14 +110,24 @@ export function keepAlive(
 /**
  * Creates an SSE Response with proper headers
  * @param stream - The ReadableStream from createSSEStream
+ * @param corsEnabled - Whether to include CORS headers (default: false)
  * @returns A Response configured for SSE
  */
-export function createSSEResponse(stream: ReadableStream<Uint8Array>): Response {
-    return new Response(stream, {
-        headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-        },
-    });
+export function createSSEResponse(
+    stream: ReadableStream<Uint8Array>,
+    corsEnabled = false,
+): Response {
+    const headers: Record<string, string> = {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+    };
+
+    if (corsEnabled) {
+        headers['Access-Control-Allow-Origin'] = '*';
+        headers['Access-Control-Allow-Methods'] = 'GET';
+        headers['Access-Control-Allow-Headers'] = 'Content-Type';
+    }
+
+    return new Response(stream, { headers });
 }

@@ -1,5 +1,5 @@
 // /api/public/events/stream — Public SSE stream for real-time agent events
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import {
     createSSEStream,
@@ -7,7 +7,12 @@ import {
     keepAlive,
     createSSEResponse,
 } from '@/lib/sse';
-import { PUBLIC_SAFE_KINDS, sanitizeEvent } from '@/lib/public-events';
+import {
+    PUBLIC_SAFE_KINDS,
+    sanitizeEvent,
+    checkRateLimit,
+    getClientIp,
+} from '@/lib/public-events';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,6 +20,28 @@ const POLL_INTERVAL_MS = 3000; // Slightly slower than internal (2s)
 const KEEPALIVE_INTERVAL_MS = 20000;
 
 export async function GET(req: NextRequest) {
+    const corsHeaders = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Expose-Headers': 'Retry-After',
+    };
+
+    // Rate-limit by client IP (skip if IP is unknown to avoid global throttling)
+    const ip = getClientIp(req);
+    if (ip !== 'unknown' && !checkRateLimit(ip)) {
+        return NextResponse.json(
+            { error: 'Rate limit exceeded. Max 30 requests per minute.' },
+            {
+                status: 429,
+                headers: {
+                    ...corsHeaders,
+                    'Retry-After': '60',
+                },
+            },
+        );
+    }
+
     const { searchParams } = new URL(req.url);
     const lastEventId = searchParams.get('last_event_id');
 
@@ -112,5 +139,5 @@ export async function GET(req: NextRequest) {
         writer.close().catch(() => {});
     });
 
-    return createSSEResponse(stream);
+    return createSSEResponse(stream, true);
 }

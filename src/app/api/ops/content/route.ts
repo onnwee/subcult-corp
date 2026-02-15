@@ -1,6 +1,7 @@
 // /api/ops/content — List and manage content drafts
 import { NextRequest, NextResponse } from 'next/server';
 import { sql, jsonb } from '@/lib/db';
+import { emitEvent } from '@/lib/ops/events';
 
 export const dynamic = 'force-dynamic';
 
@@ -140,22 +141,50 @@ export async function PATCH(req: NextRequest) {
                 body.status === 'approved' ? 'approve'
                 : body.status === 'rejected' ? 'reject'
                 : 'mixed';
-            await sql`
+            const result = await sql`
                 UPDATE ops_content_drafts
                 SET status = ${body.status},
                     reviewer_notes = reviewer_notes || ${jsonb([{ reviewer: 'manual', verdict, notes: body.notes }])}::jsonb,
                     ${body.status === 'published' ? sql`published_at = NOW(),` : sql``}
                     updated_at = NOW()
                 WHERE id = ${body.id}
+                AND status = ${draft.status}
+                RETURNING id, author_agent, title, content_type
             `;
+
+            // Emit event when content is published (only if update succeeded)
+            if (body.status === 'published' && result.length > 0) {
+                const publishedDraft = result[0];
+                await emitEvent({
+                    agent_id: publishedDraft.author_agent,
+                    kind: 'content_published',
+                    title: `Published: ${publishedDraft.title}`,
+                    summary: `${publishedDraft.content_type} published by ${publishedDraft.author_agent}`,
+                    tags: ['content', 'published', publishedDraft.content_type],
+                });
+            }
         } else {
-            await sql`
+            const result = await sql`
                 UPDATE ops_content_drafts
                 SET status = ${body.status},
                     ${body.status === 'published' ? sql`published_at = NOW(),` : sql``}
                     updated_at = NOW()
                 WHERE id = ${body.id}
+                AND status = ${draft.status}
+                RETURNING id, author_agent, title, content_type
             `;
+
+            // Emit event when content is published (only if update succeeded)
+            if (body.status === 'published' && result.length > 0) {
+                const publishedDraft = result[0];
+                await emitEvent({
+                    agent_id: publishedDraft.author_agent,
+                    kind: 'content_published',
+                    title: `Published: ${publishedDraft.title}`,
+                    summary: `${publishedDraft.content_type} published by ${publishedDraft.author_agent}`,
+                    tags: ['content', 'published', publishedDraft.content_type],
+                });
+            }
         }
 
         return NextResponse.json({
