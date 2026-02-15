@@ -230,16 +230,6 @@ export function LiveFeed() {
                 }
             });
 
-            es.addEventListener('error', (e: MessageEvent) => {
-                if (!isMounted) return;
-                try {
-                    JSON.parse(e.data);
-                    // Error event received from server
-                } catch {
-                    // Not a JSON error event, likely connection error
-                }
-            });
-
             es.onopen = () => {
                 if (!isMounted) return;
                 reconnectRef.current = 0;

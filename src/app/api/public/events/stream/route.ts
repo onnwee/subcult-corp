@@ -20,14 +20,22 @@ const POLL_INTERVAL_MS = 3000; // Slightly slower than internal (2s)
 const KEEPALIVE_INTERVAL_MS = 20000;
 
 export async function GET(req: NextRequest) {
-    // Rate-limit by client IP
+    const corsHeaders = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Expose-Headers': 'Retry-After',
+    };
+
+    // Rate-limit by client IP (skip if IP is unknown to avoid global throttling)
     const ip = getClientIp(req);
-    if (!checkRateLimit(ip)) {
+    if (ip !== 'unknown' && !checkRateLimit(ip)) {
         return NextResponse.json(
             { error: 'Rate limit exceeded. Max 30 requests per minute.' },
             {
                 status: 429,
                 headers: {
+                    ...corsHeaders,
                     'Retry-After': '60',
                 },
             },
