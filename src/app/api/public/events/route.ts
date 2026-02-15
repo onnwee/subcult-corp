@@ -34,27 +34,22 @@ export async function GET(req: NextRequest) {
         // If after_id is provided, fetch events newer than that event
         let rows: Array<Record<string, unknown>> = [];
         if (afterId) {
-            // Get the timestamp of the after_id event first
-            const [afterEvent] = await sql<
-                [{ created_at: string }?]
-            >`
-                SELECT created_at FROM ops_agent_events WHERE id = ${afterId} LIMIT 1
-            `;
-
-            if (afterEvent) {
-                // When paginating forward, return in ASC order (oldest first)
-                rows = await sql`
-                    SELECT id, agent_id, kind, title, summary, tags, created_at
-                    FROM ops_agent_events
-                    WHERE kind = ANY(${PUBLIC_SAFE_KINDS as unknown as string[]})
-                    AND (
-                        created_at > ${afterEvent.created_at}
-                        OR (created_at = ${afterEvent.created_at} AND id > ${afterId})
+            // When paginating forward, use a subquery to get the timestamp
+            // and filter in a single query (more efficient than two roundtrips)
+            rows = await sql`
+                SELECT id, agent_id, kind, title, summary, tags, created_at
+                FROM ops_agent_events
+                WHERE kind = ANY(${PUBLIC_SAFE_KINDS as unknown as string[]})
+                AND (
+                    created_at > (SELECT created_at FROM ops_agent_events WHERE id = ${afterId})
+                    OR (
+                        created_at = (SELECT created_at FROM ops_agent_events WHERE id = ${afterId})
+                        AND id > ${afterId}
                     )
-                    ORDER BY created_at ASC, id ASC
-                    LIMIT ${limit}
-                `;
-            }
+                )
+                ORDER BY created_at ASC, id ASC
+                LIMIT ${limit}
+            `;
         } else {
             // Initial load: return in DESC order (newest first)
             rows = await sql`
