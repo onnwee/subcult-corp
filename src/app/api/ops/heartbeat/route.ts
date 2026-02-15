@@ -187,13 +187,25 @@ export async function GET(req: NextRequest) {
                     const dreamers = shuffled.slice(0, dreamCount);
 
                     const dreamResults = [];
+                    const dreamErrors = [];
                     for (const agentId of dreamers) {
-                        const result = await runDreamCycle(agentId);
-                        if (result) {
-                            dreamResults.push({
-                                agentId: result.agentId,
-                                dreamType: result.dreamType,
-                                dreamId: result.dreamId,
+                        try {
+                            const result = await runDreamCycle(agentId);
+                            if (result) {
+                                dreamResults.push({
+                                    agentId: result.agentId,
+                                    dreamType: result.dreamType,
+                                    dreamId: result.dreamId,
+                                });
+                            }
+                        } catch (agentErr) {
+                            log.error('Dream cycle failed for agent', { 
+                                agentId, 
+                                error: agentErr 
+                            });
+                            dreamErrors.push({
+                                agentId,
+                                error: (agentErr as Error).message,
                             });
                         }
                     }
@@ -203,6 +215,9 @@ export async function GET(req: NextRequest) {
                         dreamers,
                         completed: dreamResults,
                     };
+                    if (dreamErrors.length > 0) {
+                        results.dreams.errors = dreamErrors;
+                    }
                 } else {
                     results.dreams = {
                         window: true,
@@ -218,7 +233,7 @@ export async function GET(req: NextRequest) {
             }
         } catch (err) {
             results.dreams = { error: (err as Error).message };
-            log.error('Dream cycle failed', { error: err });
+            log.error('Dream cycle phase failed', { error: err });
         }
 
         // ── Phase 13: Rebellion resolution checks ──
