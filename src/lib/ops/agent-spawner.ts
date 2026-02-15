@@ -7,7 +7,7 @@ import { emitEventAndCheckReactions } from './events';
 import { logger } from '@/lib/logger';
 import type { AgentProposal, AgentPersonality } from './agent-designer';
 import { writeFile, mkdir } from 'fs/promises';
-import { join } from 'path';
+import { join, resolve, sep } from 'path';
 
 const log = logger.child({ module: 'agent-spawner' });
 
@@ -260,6 +260,14 @@ export async function executeSpawn(proposalId: string): Promise<SpawnResult> {
 
     if (!proposal) throw new Error(`Proposal "${proposalId}" not found`);
 
+    // Validate agent_name to prevent path traversal attacks - do this first before any other checks
+    const agentNamePattern = /^[a-z0-9_]+$/;
+    if (!agentNamePattern.test(proposal.agent_name)) {
+        throw new Error(
+            `Invalid agent_name: "${proposal.agent_name}". Must contain only lowercase letters, numbers, and underscores.`,
+        );
+    }
+
     if (proposal.status !== 'approved') {
         throw new Error(
             `Proposal must be approved before spawning (current: ${proposal.status})`,
@@ -270,14 +278,6 @@ export async function executeSpawn(proposalId: string): Promise<SpawnResult> {
         throw new Error(
             'REFUSED: human_approved must be true before spawning. ' +
                 'This is a safety guard — set human_approved via the UI or API first.',
-        );
-    }
-
-    // Validate agent_name to prevent path traversal attacks
-    const agentNamePattern = /^[a-z0-9_]+$/;
-    if (!agentNamePattern.test(proposal.agent_name)) {
-        throw new Error(
-            `Invalid agent_name: "${proposal.agent_name}". Must contain only lowercase letters, numbers, and underscores.`,
         );
     }
 
@@ -298,8 +298,13 @@ export async function executeSpawn(proposalId: string): Promise<SpawnResult> {
     );
 
     // Verify the resolved path stays under the intended workspace directory
-    const expectedPrefix = join(process.cwd(), 'workspace', 'agents');
-    if (!workspaceRoot.startsWith(expectedPrefix)) {
+    // Use resolve to normalize paths and prevent partial path matches
+    const expectedPrefix = resolve(process.cwd(), 'workspace', 'agents');
+    const resolvedWorkspaceRoot = resolve(workspaceRoot);
+    
+    // Check that resolved path is within expected directory
+    // Add path separator to prevent 'workspace/agents-malicious' from matching 'workspace/agents'
+    if (!resolvedWorkspaceRoot.startsWith(expectedPrefix + sep) && resolvedWorkspaceRoot !== expectedPrefix) {
         throw new Error(
             `Security violation: agent_name "${proposal.agent_name}" attempted to escape workspace directory.`,
         );
