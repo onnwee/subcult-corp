@@ -733,13 +733,17 @@ async function checkGovernanceProposalCreated(
     const proposedStr = JSON.stringify(proposal.proposed_value, null, 0);
     const topic = `Governance debate: ${proposal.proposer} proposes changing "${proposal.policy_key}" from ${currentStr} to ${proposedStr}. Rationale: ${proposal.rationale}`;
 
-    // Create a debate roundtable with ALL agents
+    // Create a debate roundtable with ALL agents (topic truncated to max length)
+    const topicTruncated =
+        topic.length > TOPIC_MAX_LENGTH ?
+            topic.slice(0, TOPIC_MAX_LENGTH - 3) + '...'
+        :   topic;
     const [session] = await sql<[{ id: string }]>`
         INSERT INTO ops_roundtable_sessions (
             format, topic, participants, status, scheduled_for, metadata
         ) VALUES (
             'debate',
-            ${topic.slice(0, 1000)},
+            ${topicTruncated},
             ${AGENT_IDS},
             'pending',
             NOW(),

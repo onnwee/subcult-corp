@@ -11,10 +11,6 @@ import type {
 
 const log = logger.child({ module: 'agent-proposal-voting' });
 
-// Truncation limits for debate topics
-const RATIONALE_PREVIEW_LENGTH = 200;
-const TOPIC_MAX_LENGTH = 1000;
-
 // ─── Submit a vote ───
 
 export async function submitVote(

@@ -56,10 +56,11 @@ async function seed() {
         `;
         log.info('Seeded trigger', { name: trigger.name });
     } catch (err) {
-        // If ON CONFLICT (name) fails because name is not unique, fall back to insert
+        // Fallback for databases where ON CONFLICT (name) fails due to missing unique constraint
         // PostgreSQL error codes:
-        //   42P10 = invalid_column_reference (no unique constraint on name)
+        //   42P10 = invalid_column_definition (returned when ON CONFLICT references non-unique column)
         //   42703 = undefined_column (column doesn't exist)
+        // This allows the seed to work on databases without the unique constraint on name
         if (err.code === '42P10' || err.code === '42703') {
             log.warn(
                 `ON CONFLICT failed with error code ${err.code} - falling back to direct insert without conflict handling`,
