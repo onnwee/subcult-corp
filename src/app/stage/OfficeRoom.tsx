@@ -1471,7 +1471,7 @@ export function OfficeRoom({
                         };
                     }
                 }
-                
+
                 // Handle exit from replay mode - return to desks
                 if (!isReplaying && prevReplayingRef.current) {
                     const cfg = AGENT_CONFIGS.find(c => c.id === agent.id);
@@ -1496,11 +1496,11 @@ export function OfficeRoom({
                         newX = agent.x + Math.sign(dx) * 2;
                     }
                 }
-                
+
                 // Auto-clear speech bubbles in normal mode
                 const newSpeechTick =
                     agent.speechTick > 0 ? agent.speechTick - 1 : 0;
-                    
+
                 return {
                     ...agent,
                     x: newX,
