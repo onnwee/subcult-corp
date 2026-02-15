@@ -316,6 +316,7 @@ export interface RoundtableSession {
     scheduled_for?: string;
     schedule_slot?: string;
     model?: string;
+    source?: string;
     turn_count: number;
     metadata: Record<string, unknown>;
     created_at: string;

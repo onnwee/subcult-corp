@@ -42,7 +42,8 @@ export function AskTheRoom() {
         question.trim().length >= MIN_CHARS && submitState !== 'loading';
 
     const handleSubmit = useCallback(async () => {
-        if (!canSubmit) return;
+        if (question.trim().length < MIN_CHARS || submitState === 'loading')
+            return;
 
         setSubmitState('loading');
         setErrorMessage('');
@@ -77,7 +78,7 @@ export function AskTheRoom() {
             setSubmitState('error');
             setErrorMessage('Network error. Please try again.');
         }
-    }, [canSubmit, question, format]);
+    }, [question, format, submitState]);
 
     const handleReset = useCallback(() => {
         setSubmitState('idle');
@@ -91,6 +92,8 @@ export function AskTheRoom() {
             {/* Toggle header */}
             <button
                 onClick={() => setIsOpen(!isOpen)}
+                aria-expanded={isOpen}
+                aria-label='Ask the collective a question'
                 className='w-full flex items-center justify-between px-4 py-3 text-left hover:bg-zinc-800/30 transition-colors'
             >
                 <div className='flex items-center gap-2'>
@@ -142,7 +145,11 @@ export function AskTheRoom() {
                         <>
                             {/* Textarea */}
                             <div className='pt-3'>
+                                <label htmlFor='ask-question' className='sr-only'>
+                                    Your question for the collective
+                                </label>
                                 <textarea
+                                    id='ask-question'
                                     value={question}
                                     onChange={e =>
                                         setQuestion(
@@ -152,10 +159,12 @@ export function AskTheRoom() {
                                     placeholder='Ask the collective a question...'
                                     disabled={submitState === 'loading'}
                                     rows={3}
+                                    aria-describedby='char-count'
                                     className='w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-600 resize-none disabled:opacity-50'
                                 />
                                 <div className='flex justify-end mt-1'>
                                     <span
+                                        id='char-count'
                                         className={`text-[10px] ${charsRemaining < 50 ? 'text-amber-500' : 'text-zinc-600'}`}
                                     >
                                         {charsRemaining} remaining
@@ -165,7 +174,11 @@ export function AskTheRoom() {
 
                             {/* Format selector + submit */}
                             <div className='flex items-center gap-2'>
+                                <label htmlFor='format-select' className='sr-only'>
+                                    Conversation format
+                                </label>
                                 <select
+                                    id='format-select'
                                     value={format}
                                     onChange={e =>
                                         setFormat(
@@ -222,7 +235,10 @@ export function AskTheRoom() {
 
                             {/* Error state */}
                             {submitState === 'error' && (
-                                <div className='rounded-lg border border-red-800/50 bg-red-900/20 p-3'>
+                                <div
+                                    role='alert'
+                                    className='rounded-lg border border-red-800/50 bg-red-900/20 p-3'
+                                >
                                     <p className='text-[11px] text-red-400'>
                                         {errorMessage}
                                     </p>

@@ -31,11 +31,13 @@ const VALID_FORMATS: ConversationFormat[] = [
 // ─── Rate limiting (in-memory, per IP, 1 req / 60s) ───
 const rateLimitMap = new Map<string, number>();
 const RATE_LIMIT_MS = 60_000;
+const MAX_RATE_LIMIT_ENTRIES = 10_000; // Prevent unbounded memory growth
 
 function getClientIp(req: NextRequest): string {
     return (
         req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
         req.headers.get('x-real-ip') ??
+        req.headers.get('cf-connecting-ip') ??
         'unknown'
     );
 }
@@ -49,6 +51,14 @@ function checkRateLimit(ip: string): { allowed: boolean; retryAfter?: number } {
             (RATE_LIMIT_MS - (now - lastRequest)) / 1000,
         );
         return { allowed: false, retryAfter };
+    }
+
+    // Prevent unbounded growth - if map is full, clear old entries immediately
+    if (rateLimitMap.size >= MAX_RATE_LIMIT_ENTRIES) {
+        const cutoff = now - RATE_LIMIT_MS * 2;
+        for (const [key, timestamp] of rateLimitMap.entries()) {
+            if (timestamp < cutoff) rateLimitMap.delete(key);
+        }
     }
 
     rateLimitMap.set(ip, now);

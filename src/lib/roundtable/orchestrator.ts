@@ -207,9 +207,7 @@ export async function orchestrateConversation(
     const affinityMap = await loadAffinityMap();
 
     // Detect user-submitted questions
-    const isUserQuestion =
-        (session.metadata as Record<string, unknown>)?.source ===
-        'user_question';
+    const isUserQuestion = session.source === 'user_question';
     const userQuestion =
         isUserQuestion ?
             (((session.metadata as Record<string, unknown>)
