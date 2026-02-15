@@ -7,7 +7,7 @@ import { emitEventAndCheckReactions } from './events';
 import { logger } from '@/lib/logger';
 import type { AgentProposal, AgentPersonality } from './agent-designer';
 import { writeFile, mkdir } from 'fs/promises';
-import { join, resolve, sep } from 'path';
+import { join, resolve } from 'path';
 
 const log = logger.child({ module: 'agent-spawner' });
 
@@ -298,15 +298,15 @@ export async function executeSpawn(proposalId: string): Promise<SpawnResult> {
     );
 
     // Verify the resolved path stays under the intended workspace directory
-    // Use resolve to normalize paths and prevent partial path matches
+    // Use resolve to normalize paths and exact matching to prevent any traversal
     const expectedPrefix = resolve(process.cwd(), 'workspace', 'agents');
+    const expectedPath = resolve(expectedPrefix, proposal.agent_name);
     const resolvedWorkspaceRoot = resolve(workspaceRoot);
     
-    // Check that resolved path is within expected directory (with path separator to prevent partial matches)
-    // This ensures paths like 'workspace/agents-malicious' don't match 'workspace/agents'
-    if (!resolvedWorkspaceRoot.startsWith(expectedPrefix + sep)) {
+    // Use exact path matching - the resolved path must exactly match the expected path
+    if (resolvedWorkspaceRoot !== expectedPath) {
         throw new Error(
-            `Security violation: agent_name "${proposal.agent_name}" attempted to escape workspace directory.`,
+            `Security violation: agent_name "${proposal.agent_name}" resulted in unexpected path. Expected: ${expectedPath}, Got: ${resolvedWorkspaceRoot}`,
         );
     }
 
