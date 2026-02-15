@@ -72,10 +72,17 @@ export async function GET(req: NextRequest) {
                 LIMIT 50
             `;
 
+            // Send all events, then update cursor atomically
             for (const row of rows) {
+                if (!isActive) break;
                 await sendEvent(writer, 'event', row);
-                cursorCreatedAt = row.created_at;
-                cursorId = row.id;
+            }
+            
+            // Only update cursor if we successfully sent events
+            if (rows.length > 0 && isActive) {
+                const lastRow = rows[rows.length - 1];
+                cursorCreatedAt = lastRow.created_at;
+                cursorId = lastRow.id;
             }
         } catch (err) {
             // Stream may be closed by client

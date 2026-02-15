@@ -315,6 +315,12 @@ export function useEventStream(filters?: {
                 reconnectTimerRef.current = null;
             }
 
+            // Close existing EventSource if any
+            if (eventSourceRef.current) {
+                eventSourceRef.current.close();
+                eventSourceRef.current = null;
+            }
+
             // Build SSE URL with last_event_id from ref if available
             const params = new URLSearchParams();
             if (agentId) params.set('agent_id', agentId);

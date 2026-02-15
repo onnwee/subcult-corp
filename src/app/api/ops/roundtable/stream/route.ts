@@ -47,26 +47,35 @@ export async function GET(req: NextRequest) {
                 LIMIT 50
             `;
 
+            // Send all turns, then update cursor atomically
             for (const turn of turns) {
+                if (!isActive) break;
                 await sendEvent(writer, 'turn', turn);
-                lastTurnNumber = turn.turn_number;
+            }
+            
+            // Only update cursor if we successfully sent turns
+            if (turns.length > 0 && isActive) {
+                const lastTurn = turns[turns.length - 1];
+                lastTurnNumber = lastTurn.turn_number;
             }
 
-            // Check session status
-            const sessionRows = await sql`
-                SELECT status FROM ops_roundtable_sessions
-                WHERE id = ${sessionId}
-                LIMIT 1
-            `;
+            // Check session status only if still active
+            if (isActive) {
+                const sessionRows = await sql`
+                    SELECT status FROM ops_roundtable_sessions
+                    WHERE id = ${sessionId}
+                    LIMIT 1
+                `;
 
-            if (sessionRows.length > 0) {
-                const status = sessionRows[0].status;
-                if (status === 'completed' || status === 'failed') {
-                    await sendEvent(writer, 'session_complete', { status });
-                    isActive = false;
-                    stopKeepAlive();
-                    writer.close().catch(() => {});
-                    return;
+                if (sessionRows.length > 0) {
+                    const status = sessionRows[0].status;
+                    if (status === 'completed' || status === 'failed') {
+                        await sendEvent(writer, 'session_complete', { status });
+                        isActive = false;
+                        stopKeepAlive();
+                        await writer.close().catch(() => {});
+                        return;
+                    }
                 }
             }
         } catch (err) {
