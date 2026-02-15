@@ -811,10 +811,10 @@ async function checkAgentProposalCreated(
 
     const proposal = proposals[0];
 
-    // Build debate topic (with ellipsis if truncated)
+    // Build debate topic (with ellipsis if truncated, staying within length limit)
     const rationalePreview =
         proposal.rationale.length > RATIONALE_PREVIEW_LENGTH ?
-            proposal.rationale.slice(0, RATIONALE_PREVIEW_LENGTH) + '...'
+            proposal.rationale.slice(0, RATIONALE_PREVIEW_LENGTH - 3) + '...'
         :   proposal.rationale;
     const topic = `Agent Design Review: ${proposal.proposed_by} proposes new agent "${proposal.agent_name}" (${proposal.agent_role}). Rationale: ${rationalePreview}`;
 
