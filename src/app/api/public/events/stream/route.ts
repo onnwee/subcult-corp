@@ -25,7 +25,12 @@ export async function GET(req: NextRequest) {
     if (!checkRateLimit(ip)) {
         return NextResponse.json(
             { error: 'Rate limit exceeded. Max 30 requests per minute.' },
-            { status: 429 },
+            {
+                status: 429,
+                headers: {
+                    'Retry-After': '60',
+                },
+            },
         );
     }
 

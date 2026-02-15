@@ -16,7 +16,12 @@ export async function GET(req: NextRequest) {
     if (!checkRateLimit(ip)) {
         return NextResponse.json(
             { error: 'Rate limit exceeded. Max 30 requests per minute.' },
-            { status: 429 },
+            {
+                status: 429,
+                headers: {
+                    'Retry-After': '60',
+                },
+            },
         );
     }
 
@@ -37,6 +42,7 @@ export async function GET(req: NextRequest) {
             `;
 
             if (afterEvent) {
+                // When paginating forward, return in ASC order (oldest first)
                 rows = await sql`
                     SELECT id, agent_id, kind, title, summary, tags, created_at
                     FROM ops_agent_events
@@ -45,11 +51,12 @@ export async function GET(req: NextRequest) {
                         created_at > ${afterEvent.created_at}
                         OR (created_at = ${afterEvent.created_at} AND id > ${afterId})
                     )
-                    ORDER BY created_at DESC
+                    ORDER BY created_at ASC, id ASC
                     LIMIT ${limit}
                 `;
             }
         } else {
+            // Initial load: return in DESC order (newest first)
             rows = await sql`
                 SELECT id, agent_id, kind, title, summary, tags, created_at
                 FROM ops_agent_events

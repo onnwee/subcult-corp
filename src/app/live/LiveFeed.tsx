@@ -289,7 +289,8 @@ export function LiveFeed() {
                 const res = await fetch(`/api/public/events?${params}`);
                 if (!res.ok) return;
                 const data = await res.json();
-                const newEvents = (data.events as SanitizedEvent[]).reverse();
+                // Events are in ASC order when using after_id, no need to reverse
+                const newEvents = data.events as SanitizedEvent[];
                 for (const evt of newEvents) {
                     addNewEvent(evt);
                     lastEventIdRef.current = evt.id;
