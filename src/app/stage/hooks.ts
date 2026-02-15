@@ -531,23 +531,35 @@ export function useSystemStats() {
     const [stats, setStats] = useState<SystemStats | null>(null);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        fetchJson<{
-            totalEvents: number;
-            activeMissions: number;
-            totalSessions: number;
-            memoriesByAgent: Record<string, number>;
-        }>('/api/ops/stats')
-            .then(data => {
-                setStats({
-                    totalEvents: data.totalEvents,
-                    activeMissions: data.activeMissions,
-                    totalConversations: data.totalSessions,
-                    agentMemories: data.memoriesByAgent,
-                });
-            })
-            .finally(() => setLoading(false));
+    const fetchStats = useCallback(async () => {
+        try {
+            const data = await fetchJson<{
+                totalEvents: number;
+                activeMissions: number;
+                totalSessions: number;
+                memoriesByAgent: Record<string, number>;
+            }>('/api/ops/stats');
+            setStats({
+                totalEvents: data.totalEvents,
+                activeMissions: data.activeMissions,
+                totalConversations: data.totalSessions,
+                agentMemories: data.memoriesByAgent,
+            });
+        } catch {
+            // ignore errors, keep previous stats
+        } finally {
+            setLoading(false);
+        }
     }, []);
+
+    useEffect(() => {
+        fetchStats();
+    }, [fetchStats]);
+
+    // Poll every 10 seconds
+    useInterval(() => {
+        fetchStats();
+    }, 10000);
 
     return { stats, loading };
 }

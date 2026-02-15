@@ -1,7 +1,6 @@
 // MemoryExplorer — browse, filter, and search agent memories
 // Includes timeline, type filters, confidence visualization, search, and lineage view
 'use client';
-'use no memo';
 
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
@@ -931,25 +930,15 @@ export function MemoryExplorer() {
                         // Skip non-OK responses; keep behavior of ignoring individual errors
                         continue;
                     }
-                    let data: any;
+                    let data: { findings?: ArchaeologyFinding[] };
                     try {
                         data = await res.json();
                     } catch {
                         // Skip responses that are not valid JSON
                         continue;
                     }
-                    if (
-                        !cancelled &&
-                        data &&
-                        Array.isArray(
-                            (data as { findings?: ArchaeologyFinding[] })
-                                .findings,
-                        )
-                    ) {
-                        results.push(
-                            ...(data as { findings: ArchaeologyFinding[] })
-                                .findings,
-                        );
+                    if (!cancelled && data && Array.isArray(data.findings)) {
+                        results.push(...data.findings);
                     }
                 } catch {
                     /* ignore individual fetch errors */

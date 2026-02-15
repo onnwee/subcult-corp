@@ -53,7 +53,9 @@ export async function GET(req: NextRequest) {
         }
 
         if (typeParam) {
-            const types = typeParam.split(',').filter(t => VALID_TYPES.has(t as MemoryType));
+            const types = typeParam
+                .split(',')
+                .filter(t => VALID_TYPES.has(t as MemoryType)) as MemoryType[];
             if (types.length > 0) {
                 conditions.push(sql`type = ANY(${types})`);
             }
