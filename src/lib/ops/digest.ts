@@ -9,6 +9,10 @@ import { logger } from '@/lib/logger';
 
 const log = logger.child({ module: 'digest' });
 
+// CST is UTC-6 hours
+const CST_OFFSET_HOURS = -6;
+const HOURS_PER_DAY = 24;
+
 // ─── Types ───
 
 export interface DigestHighlight {
@@ -181,14 +185,14 @@ export async function generateDailyDigest(date?: Date): Promise<string | null> {
         // Use provided date as-is (assume it's already the correct UTC midnight)
         targetDate = date;
     } else {
-        // Calculate CST date
+        // Calculate CST date — digest should be for the CST calendar day
         const now = new Date();
-        const cstHour = (now.getUTCHours() - 6 + 24) % 24;
+        const cstHour = (now.getUTCHours() + CST_OFFSET_HOURS + 24) % 24;
         
         // If it's past midnight CST (0:00-1:59), use yesterday's date
         // Otherwise use today's date
-        const cstOffset = cstHour <= 1 ? -6 - 24 : -6;
-        const cstDate = new Date(now.getTime() + cstOffset * 60 * 60 * 1000);
+        const offsetHours = cstHour < 2 ? CST_OFFSET_HOURS - HOURS_PER_DAY : CST_OFFSET_HOURS;
+        const cstDate = new Date(now.getTime() + offsetHours * 60 * 60 * 1000);
         
         // Extract just the date portion and create UTC midnight
         const dateStr = cstDate.toISOString().slice(0, 10);
