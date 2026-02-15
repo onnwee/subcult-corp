@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { AGENTS } from '@/lib/agents';
-import { useDreams } from './hooks';
+import { useDreams, type DreamEntry } from './hooks';
 import type { AgentId } from '@/lib/types';
 
 // ─── Dream type styling ───
@@ -148,18 +148,6 @@ const AGENTS_LIST = [
     'mux',
 ] as const;
 
-// ─── Types ───
-
-interface DreamEntry {
-    id: string;
-    agent_id: string;
-    source_memories: string[];
-    dream_content: string;
-    dream_type: string;
-    new_memory_id: string | null;
-    created_at: string;
-}
-
 // ─── Main Component ───
 
 export function DreamLog() {
@@ -253,7 +241,7 @@ export function DreamLog() {
                     </p>
                 </div>
             :   <div className='grid gap-3'>
-                    {(dreams as DreamEntry[]).map(dream => (
+                    {dreams.map(dream => (
                         <DreamCard key={dream.id} dream={dream} />
                     ))}
                 </div>

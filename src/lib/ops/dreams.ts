@@ -205,6 +205,11 @@ Rules for dreaming:
         RETURNING id
     `;
 
+    if (!row) {
+        log.error('Failed to create dream cycle record', { agentId, dreamType });
+        throw new Error('Dream cycle INSERT returned no row');
+    }
+
     // 6. Emit event
     await emitEvent({
         agent_id: agentId,
