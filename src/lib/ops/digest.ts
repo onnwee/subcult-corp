@@ -169,12 +169,32 @@ async function gatherDayData(date: Date): Promise<DayData> {
 // ─── Public: generate and store digest ───
 
 /**
- * Generate a daily digest for the given date (defaults to today).
+ * Generate a daily digest for the given date (defaults to the current CST day).
+ * If called after midnight CST, creates digest for the previous day.
  * Gathers activity data and asks Mux to write a narrative summary.
  * Returns the digest ID, or null if a digest already exists for that date.
  */
 export async function generateDailyDigest(date?: Date): Promise<string | null> {
-    const targetDate = date ?? new Date();
+    let targetDate: Date;
+    
+    if (date) {
+        // Use provided date as-is (assume it's already the correct UTC midnight)
+        targetDate = date;
+    } else {
+        // Calculate CST date
+        const now = new Date();
+        const cstHour = (now.getUTCHours() - 6 + 24) % 24;
+        
+        // If it's past midnight CST (0:00-1:59), use yesterday's date
+        // Otherwise use today's date
+        const cstOffset = cstHour <= 1 ? -6 - 24 : -6;
+        const cstDate = new Date(now.getTime() + cstOffset * 60 * 60 * 1000);
+        
+        // Extract just the date portion and create UTC midnight
+        const dateStr = cstDate.toISOString().slice(0, 10);
+        targetDate = new Date(dateStr + 'T00:00:00Z');
+    }
+    
     const dateStr = targetDate.toISOString().slice(0, 10); // YYYY-MM-DD
 
     // Check if digest already exists for this date
