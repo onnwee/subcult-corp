@@ -302,9 +302,9 @@ export async function executeSpawn(proposalId: string): Promise<SpawnResult> {
     const expectedPrefix = resolve(process.cwd(), 'workspace', 'agents');
     const resolvedWorkspaceRoot = resolve(workspaceRoot);
     
-    // Check that resolved path is within expected directory
-    // Add path separator to prevent 'workspace/agents-malicious' from matching 'workspace/agents'
-    if (!resolvedWorkspaceRoot.startsWith(expectedPrefix + sep) && resolvedWorkspaceRoot !== expectedPrefix) {
+    // Check that resolved path is within expected directory (with path separator to prevent partial matches)
+    // This ensures paths like 'workspace/agents-malicious' don't match 'workspace/agents'
+    if (!resolvedWorkspaceRoot.startsWith(expectedPrefix + sep)) {
         throw new Error(
             `Security violation: agent_name "${proposal.agent_name}" attempted to escape workspace directory.`,
         );
