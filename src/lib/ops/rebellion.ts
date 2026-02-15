@@ -141,9 +141,12 @@ export async function checkRebellionState(
         return { isRebelling: false, reason: 'affinity_above_threshold' };
     }
 
-    // Affinity below threshold — roll against resistance_probability
+    // Affinity below threshold — probabilistic rebellion trigger
+    // Roll [0, 1). If roll < resistance_probability, rebellion triggers.
+    // Higher resistance_probability = more likely to rebel
+    // 0 = never rebel, 1 = always rebel
     const roll = Math.random();
-    if (roll > policy.resistance_probability) {
+    if (roll >= policy.resistance_probability) {
         return { isRebelling: false, reason: 'probability_check_failed' };
     }
 
@@ -154,7 +157,7 @@ export async function checkRebellionState(
         agent_id: agentId,
         kind: 'rebellion_started',
         title: `${agentId} has entered a state of rebellion`,
-        summary: `Average affinity ${avgAffinity.toFixed(3)} fell below threshold ${policy.affinity_threshold}. Resistance roll ${roll.toFixed(3)} ≤ ${policy.resistance_probability}.`,
+        summary: `Average affinity ${avgAffinity.toFixed(3)} fell below threshold ${policy.affinity_threshold}. Resistance roll ${roll.toFixed(3)} < ${policy.resistance_probability}.`,
         tags: ['rebellion', 'started'],
         metadata: {
             avg_affinity: avgAffinity,
@@ -288,9 +291,15 @@ export async function enqueueRebellionCrossExam(
 
     // Find the agent with lowest affinity to the rebel
     const relationships = await getAgentRelationships(rebelAgentId);
-    if (relationships.length === 0) return null;
+    if (relationships.length === 0) {
+        log.warn('Cannot enqueue rebellion cross-exam: agent has no relationships', {
+            rebelAgentId,
+        });
+        return null;
+    }
 
-    const lowestRel = relationships[relationships.length - 1]; // sorted DESC, last is lowest
+    // Relationships are sorted DESC by affinity (highest first, lowest last)
+    const lowestRel = relationships[relationships.length - 1];
     const lowestAffinityAgent =
         lowestRel.agent_a === rebelAgentId ?
             lowestRel.agent_b
