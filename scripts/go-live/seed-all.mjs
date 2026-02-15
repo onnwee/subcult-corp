@@ -32,9 +32,6 @@ const scripts = [
 ];
 
 log.info('Starting seed-all');
-console.log('╔══════════════════════════════════════╗');
-console.log('║     SUBCULT OPS — Seed All Data      ║');
-console.log('╚══════════════════════════════════════╝\n');
 
 let succeeded = 0;
 let errors = 0;
@@ -48,7 +45,6 @@ for (const { file, desc } of scripts) {
         continue;
     }
 
-    console.log(`\n── ${desc} ──`);
     log.info('Running seed script', { file, desc });
 
     try {
@@ -63,10 +59,8 @@ for (const { file, desc } of scripts) {
     }
 }
 
-console.log('\n══════════════════════════════════════');
-console.log(`  Seeds completed: ${succeeded}/${scripts.length}`);
-if (errors > 0) console.log(`  Errors: ${errors}`);
-console.log('══════════════════════════════════════');
-console.log('\nNext step: node scripts/go-live/verify-launch.mjs');
-
 log.info('Seed-all completed', { succeeded, errors, total: scripts.length });
+
+if (errors > 0) {
+    process.exit(1);
+}

@@ -15,6 +15,9 @@ import {
     BEHAVIOR_UPDATE_INTERVAL_MAX,
     type AgentBehavior,
 } from './constants';
+import { clientLogger } from '@/lib/client-logger';
+
+const log = clientLogger.child({ component: 'useOfficeState' });
 
 // ─── Agent 3D State ───
 export interface Agent3DState {
@@ -83,15 +86,13 @@ export function useOfficeState() {
             try {
                 const res = await fetch('/api/ops/events?limit=30');
                 if (!res.ok) {
-                    // eslint-disable-next-line no-console
-                    console.error('Failed to fetch events:', res.statusText);
+                    log.error('Failed to fetch events', { status: res.statusText });
                     return;
                 }
                 const data = await res.json();
                 setRecentEvents(data.events ?? []);
             } catch (err) {
-                // eslint-disable-next-line no-console
-                console.error('Error fetching events:', err);
+                log.error('Error fetching events', { error: err });
             }
         }
         fetchEvents();
@@ -103,15 +104,13 @@ export function useOfficeState() {
             try {
                 const res = await fetch('/api/ops/missions?status=running&limit=20');
                 if (!res.ok) {
-                    // eslint-disable-next-line no-console
-                    console.error('Failed to fetch missions:', res.statusText);
+                    log.error('Failed to fetch missions', { status: res.statusText });
                     return;
                 }
                 const data = await res.json();
                 setActiveMissions(data.missions ?? []);
             } catch (err) {
-                // eslint-disable-next-line no-console
-                console.error('Error fetching missions:', err);
+                log.error('Error fetching missions', { error: err });
             }
         }
         fetchMissions();
@@ -126,8 +125,7 @@ export function useOfficeState() {
                 if (!lastSession) return;
                 const res = await fetch(`/api/ops/turns?session_id=${lastSession.id}`);
                 if (!res.ok) {
-                    // eslint-disable-next-line no-console
-                    console.error('Failed to fetch turns:', res.statusText);
+                    log.error('Failed to fetch turns', { status: res.statusText });
                     return;
                 }
                 const data = await res.json();
@@ -138,8 +136,7 @@ export function useOfficeState() {
                     })));
                 }
             } catch (err) {
-                // eslint-disable-next-line no-console
-                console.error('Error fetching turns:', err);
+                log.error('Error fetching turns', { error: err });
             }
         }
         fetchTurns();

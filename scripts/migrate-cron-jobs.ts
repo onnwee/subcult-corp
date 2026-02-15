@@ -7,9 +7,12 @@
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 import postgres from 'postgres';
+import { createLogger } from '../src/lib/logger';
+
+const log = createLogger({ service: 'migrate-cron-jobs' });
 
 if (!process.env.DATABASE_URL) {
-    console.error('Missing DATABASE_URL');
+    log.fatal('Missing DATABASE_URL');
     process.exit(1);
 }
 
@@ -266,7 +269,7 @@ function matchField(
 }
 
 async function main() {
-    console.log(`Migrating ${JOBS.length} cron jobs...`);
+    log.info('Starting cron jobs migration', { count: JOBS.length });
 
     for (const job of JOBS) {
         const [existing] = await sql`
@@ -274,7 +277,7 @@ async function main() {
         `;
 
         if (existing) {
-            console.log(`  SKIP: "${job.name}" (already exists)`);
+            log.debug('Skipping existing job', { name: job.name });
             continue;
         }
 
@@ -298,16 +301,19 @@ async function main() {
             })}
         `;
 
-        console.log(
-            `  OK: "${job.name}" → ${job.agent_id} (${job.cron_expression}) next: ${nextFireAt.toISOString()}`,
-        );
+        log.info('Created cron job', {
+            name: job.name,
+            agent_id: job.agent_id,
+            schedule: job.cron_expression,
+            next_fire: nextFireAt.toISOString(),
+        });
     }
 
-    console.log('Done.');
+    log.info('Migration complete');
     await sql.end();
 }
 
 main().catch(err => {
-    console.error('Fatal:', err);
+    log.fatal('Migration failed', { error: err });
     process.exit(1);
 });

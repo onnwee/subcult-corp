@@ -22,25 +22,24 @@ let failed = 0;
 let warnings = 0;
 
 function pass(msg) {
-    console.log(`  ✓ ${msg}`);
+    log.debug(msg);
     passed++;
 }
 
 function fail(msg) {
     log.error(msg);
-    console.log(`  ✗ ${msg}`);
     failed++;
 }
 
 function warn(msg) {
-    console.log(`  ⚠ ${msg}`);
+    log.warn(msg);
     warnings++;
 }
 
 // ─── Checks ───
 
 async function checkEnvVars() {
-    console.log('\n── Environment Variables ──');
+    log.info('Checking environment variables');
 
     if (DATABASE_URL) pass('DATABASE_URL is set');
     else fail('DATABASE_URL is not set');
@@ -56,7 +55,7 @@ async function checkEnvVars() {
 }
 
 async function checkTables(sql) {
-    console.log('\n── Database Tables ──');
+    log.info('Checking database tables');
 
     const requiredTables = [
         'ops_mission_proposals',
@@ -88,7 +87,7 @@ async function checkTables(sql) {
 }
 
 async function checkPolicies(sql) {
-    console.log('\n── Policies ──');
+    log.info('Checking policies');
 
     const requiredPolicies = [
         'auto_approve',
@@ -124,7 +123,7 @@ async function checkPolicies(sql) {
 }
 
 async function checkTriggers(sql) {
-    console.log('\n── Trigger Rules ──');
+    log.info('Checking trigger rules');
 
     try {
         const data = await sql`
@@ -147,14 +146,12 @@ async function checkTriggers(sql) {
 
         pass(`${reactive.length} reactive trigger(s)`);
         for (const t of reactive) {
-            const status = t.enabled ? '🟢' : '🔴';
-            console.log(`      ${status} ${t.name} (fired: ${t.fire_count})`);
+            log.debug('Reactive trigger', { name: t.name, enabled: t.enabled, fire_count: t.fire_count });
         }
 
         pass(`${proactive.length} proactive trigger(s)`);
         for (const t of proactive) {
-            const status = t.enabled ? '🟢' : '🔴';
-            console.log(`      ${status} ${t.name} (fired: ${t.fire_count})`);
+            log.debug('Proactive trigger', { name: t.name, enabled: t.enabled, fire_count: t.fire_count });
         }
     } catch (err) {
         fail(`Failed to query trigger rules: ${err.message}`);
@@ -162,7 +159,7 @@ async function checkTriggers(sql) {
 }
 
 async function checkRelationships(sql) {
-    console.log('\n── Agent Relationships ──');
+    log.info('Checking agent relationships');
 
     try {
         const data = await sql`
@@ -184,9 +181,11 @@ async function checkRelationships(sql) {
         }
 
         for (const r of data) {
-            console.log(
-                `      ${r.agent_a} ↔ ${r.agent_b}: affinity ${r.affinity} (${r.total_interactions} interactions)`,
-            );
+            log.debug('Agent relationship', {
+                agents: `${r.agent_a} ↔ ${r.agent_b}`,
+                affinity: r.affinity,
+                interactions: r.total_interactions,
+            });
         }
     } catch (err) {
         fail(`Failed to query relationships: ${err.message}`);
@@ -194,7 +193,7 @@ async function checkRelationships(sql) {
 }
 
 async function checkRecentActivity(sql) {
-    console.log('\n── Recent Activity ──');
+    log.info('Checking recent activity');
 
     // Heartbeat runs
     try {
@@ -273,7 +272,7 @@ async function checkRecentActivity(sql) {
 }
 
 async function checkLLMConnectivity() {
-    console.log('\n── LLM API Connectivity ──');
+    log.info('Checking LLM API connectivity');
 
     if (!OPENROUTER_API_KEY) {
         fail('Cannot test LLM — OPENROUTER_API_KEY is not set');
@@ -299,15 +298,12 @@ async function checkLLMConnectivity() {
 // ─── Main ───
 
 async function main() {
-    console.log('╔══════════════════════════════════════╗');
-    console.log('║   SUBCULT OPS — Launch Verification  ║');
-    console.log('╚══════════════════════════════════════╝');
+    log.info('Starting launch verification');
 
     await checkEnvVars();
 
     if (!DATABASE_URL) {
         log.fatal('Cannot proceed without DATABASE_URL');
-        console.log('\n✗ Cannot proceed without DATABASE_URL.');
         process.exit(1);
     }
 
@@ -323,36 +319,16 @@ async function main() {
     await sql.end();
 
     // ─── Summary ───
-    console.log('\n══════════════════════════════════════');
-    console.log(`  ✓ ${passed} passed`);
-    if (warnings > 0) console.log(`  ⚠ ${warnings} warning(s)`);
-    if (failed > 0) console.log(`  ✗ ${failed} failed`);
-    console.log('══════════════════════════════════════');
+    log.info('Launch verification complete', { passed, warnings, failed });
 
     if (failed > 0) {
-        console.log('\n❌ Fix the failures above before launching.');
+        log.error('Fix the failures before launching');
         process.exit(1);
     } else if (warnings > 0) {
-        console.log(
-            '\n⚠️  System is functional but has warnings. Review above.',
-        );
+        log.warn('System is functional but has warnings');
     } else {
-        console.log('\n✅ All checks passed — ready to launch!');
+        log.info('All checks passed — ready to launch!');
     }
-
-    console.log('\n── Launch Order ──');
-    console.log('  1. Build Next.js: npm run build');
-    console.log('  2. Start Next.js: npm run start (or via systemd)');
-    console.log(
-        '  3. Set up crontab: */5 * * * * curl -s http://localhost:3000/api/ops/heartbeat',
-    );
-    console.log(
-        '  4. Start workers: sudo systemctl enable --now subcult-roundtable subcult-initiative',
-    );
-    console.log('  5. Verify heartbeat: check ops_action_runs for new rows');
-    console.log('  6. Enable roundtable: set roundtable_policy.enabled = true');
-    console.log('  7. Enable proactive triggers one by one');
-    console.log('  8. Monitor /stage dashboard');
 }
 
 main().catch(err => {

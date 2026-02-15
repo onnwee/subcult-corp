@@ -6,18 +6,21 @@
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 import postgres from 'postgres';
+import { createLogger } from '../src/lib/logger';
+
+const log = createLogger({ service: 'backfill-embeddings' });
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? '';
 const EMBEDDING_MODEL = 'bge-m3';
 const BATCH_SIZE = 10;
 
 if (!process.env.DATABASE_URL) {
-    console.error('Missing DATABASE_URL');
+    log.fatal('Missing DATABASE_URL');
     process.exit(1);
 }
 
 if (!OLLAMA_BASE_URL) {
-    console.error('Missing OLLAMA_BASE_URL');
+    log.fatal('Missing OLLAMA_BASE_URL');
     process.exit(1);
 }
 
@@ -48,7 +51,7 @@ async function main() {
         WHERE embedding IS NULL
     `;
 
-    console.log(`Found ${total} memories without embeddings`);
+    log.info('Found memories without embeddings', { total });
 
     let processed = 0;
     let failed = 0;
@@ -79,17 +82,17 @@ async function main() {
             }
         }
 
-        console.log(`Processed ${processed}/${total} (${failed} failed)`);
+        log.info('Progress update', { processed, total, failed });
 
         // Brief pause to avoid hammering Ollama
         await new Promise(r => setTimeout(r, 500));
     }
 
-    console.log(`Done: ${processed} embedded, ${failed} failed`);
+    log.info('Backfill complete', { processed, failed });
     await sql.end();
 }
 
 main().catch(err => {
-    console.error('Fatal:', err);
+    log.fatal('Backfill failed', { error: err });
     process.exit(1);
 });

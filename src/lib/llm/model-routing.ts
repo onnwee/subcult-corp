@@ -1,6 +1,7 @@
 // Dynamic model routing — resolve model list per tracking context
 // Cascading lookup: exact context → prefix (before ':') → 'default' → hardcoded fallback
 import { sql } from '@/lib/db';
+import { logger } from '@/lib/logger';
 
 /**
  * Default models for SDK-native routing via `models` array.
@@ -72,9 +73,9 @@ async function lookupCached(context: string): Promise<string[] | null> {
     } catch (error) {
         // If the routing table is missing or the query fails for any reason,
         // log and fall back to hardcoded DEFAULT_MODELS via lookupOrDefault.
-        console.error(
+        logger.error(
             'resolveModels: failed to query ops_model_routing; falling back to default models',
-            error,
+            { error, context },
         );
         // Cache the miss so we don't repeatedly hit a failing query.
         cache.set(context, { models: [], ts: Date.now() });

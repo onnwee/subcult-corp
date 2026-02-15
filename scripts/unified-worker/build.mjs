@@ -1,7 +1,9 @@
 // Build script for the unified worker — resolves @/ path aliases
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
+import { createLogger } from '../lib/logger.mjs';
 
+const log = createLogger({ service: 'worker-build' });
 const srcDir = resolve(import.meta.dirname, '../../src');
 
 await build({
@@ -17,4 +19,4 @@ await build({
     },
 });
 
-console.log('Unified worker built successfully');
+log.info('Unified worker built successfully');

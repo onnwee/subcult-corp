@@ -26,12 +26,11 @@ const eslintConfig = defineConfig([
       "no-console": "error",
     },
   },
-  // Scripts directory: warn during transition period, will upgrade to error
-  // once all console.* calls are migrated to the logger.
+  // Scripts directory: now enforced
   {
-    files: ["scripts/**/*.mjs"],
+    files: ["scripts/**/*.{mjs,ts}"],
     rules: {
-      "no-console": "warn",
+      "no-console": "error",
     },
   },
 ]);

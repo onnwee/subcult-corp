@@ -8,9 +8,12 @@
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 import postgres from 'postgres';
+import { createLogger } from '../src/lib/logger';
+
+const log = createLogger({ service: 'backfill-synthesis' });
 
 if (!process.env.DATABASE_URL) {
-    console.error('Missing DATABASE_URL');
+    log.fatal('Missing DATABASE_URL');
     process.exit(1);
 }
 
@@ -93,7 +96,7 @@ function buildSynthesisPrompt(
 }
 
 async function main() {
-    console.log('🔧 Backfilling artifact synthesis sessions...\n');
+    log.info('Starting artifact synthesis backfill');
 
     // Get completed roundtables from today with artifact-eligible formats
     const eligibleFormats = Object.keys(ARTIFACT_CONFIGS);
@@ -118,12 +121,12 @@ async function main() {
     `;
 
     if (sessions.length === 0) {
-        console.log('✅ No eligible sessions need backfilling.');
+        log.info('No eligible sessions need backfilling');
         await sql.end();
         return;
     }
 
-    console.log(`Found ${sessions.length} eligible roundtables needing synthesis:\n`);
+    log.info('Found eligible roundtables', { count: sessions.length });
 
     let created = 0;
     for (const session of sessions) {
@@ -139,7 +142,11 @@ async function main() {
         `;
 
         if (turns.length < 3) {
-            console.log(`  ⏭ ${session.format} (${session.id.slice(0, 8)}) — only ${turns.length} turns, skipping`);
+            log.debug('Skipping session with insufficient turns', {
+                format: session.format,
+                sessionId: session.id,
+                turns: turns.length,
+            });
             continue;
         }
 
@@ -161,15 +168,21 @@ async function main() {
             RETURNING id
         `;
 
-        console.log(`  ✅ ${session.format} → ${artifact.synthesizer} (${row.id.slice(0, 8)}) | ${turns.length} turns | "${session.topic.slice(0, 50)}"`);
+        log.info('Created synthesis session', {
+            format: session.format,
+            synthesizer: artifact.synthesizer,
+            sessionId: row.id,
+            turns: turns.length,
+            topic: session.topic,
+        });
         created++;
     }
 
-    console.log(`\n📦 Created ${created} synthesis sessions. Worker will pick them up automatically.`);
+    log.info('Backfill complete', { created });
     await sql.end();
 }
 
 main().catch(err => {
-    console.error('Backfill failed:', err);
+    log.fatal('Backfill failed', { error: err });
     process.exit(1);
 });
