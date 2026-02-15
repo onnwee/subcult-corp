@@ -71,6 +71,10 @@ const MEMORIES_PER_BATCH = 25;
 const ANALYSIS_TEMPERATURE = 0.7;
 const ANALYSIS_MAX_TOKENS = 2000;
 
+// Token estimation constants for overflow detection
+const CHARS_PER_TOKEN_ESTIMATE = 4; // Rough approximation: ~4 characters per token
+const TOKEN_WARNING_THRESHOLD = 8000; // Warn if estimated input exceeds this
+
 // ─── Main Engine ───
 
 /**
@@ -237,8 +241,10 @@ async function analyzeBatch(
         .join('\n\n');
 
     // Rough token estimation (4 chars ≈ 1 token) to warn about potential overflow
-    const estimatedInputTokens = Math.ceil(memorySummary.length / 4);
-    if (estimatedInputTokens > 8000) {
+    const estimatedInputTokens = Math.ceil(
+        memorySummary.length / CHARS_PER_TOKEN_ESTIMATE,
+    );
+    if (estimatedInputTokens > TOKEN_WARNING_THRESHOLD) {
         log.warn('High token count in archaeology batch', {
             agentId,
             estimatedInputTokens,

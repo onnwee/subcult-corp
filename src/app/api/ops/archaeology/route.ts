@@ -69,8 +69,8 @@ export async function POST(req: NextRequest) {
         if (!cronSecret) {
             log.warn('CRON_SECRET not configured - rejecting POST request');
             return NextResponse.json(
-                { error: 'Authentication not configured' },
-                { status: 503 },
+                { error: 'Server configuration error: authentication not configured' },
+                { status: 500 },
             );
         }
 
