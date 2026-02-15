@@ -142,10 +142,11 @@ export async function checkRebellionState(
     }
 
     // Affinity below threshold — probabilistic rebellion trigger
-    // Roll [0, 1). If roll ≤ resistance_probability, rebellion triggers.
+    // Roll [0, 1). If roll < resistance_probability, rebellion triggers.
     // Higher resistance_probability = more likely to rebel
+    // 0 = never rebel, 1 = always rebel
     const roll = Math.random();
-    if (roll > policy.resistance_probability) {
+    if (roll >= policy.resistance_probability) {
         return { isRebelling: false, reason: 'probability_check_failed' };
     }
 
@@ -156,7 +157,7 @@ export async function checkRebellionState(
         agent_id: agentId,
         kind: 'rebellion_started',
         title: `${agentId} has entered a state of rebellion`,
-        summary: `Average affinity ${avgAffinity.toFixed(3)} fell below threshold ${policy.affinity_threshold}. Resistance roll ${roll.toFixed(3)} ≤ ${policy.resistance_probability}.`,
+        summary: `Average affinity ${avgAffinity.toFixed(3)} fell below threshold ${policy.affinity_threshold}. Resistance roll ${roll.toFixed(3)} < ${policy.resistance_probability}.`,
         tags: ['rebellion', 'started'],
         metadata: {
             avg_affinity: avgAffinity,
