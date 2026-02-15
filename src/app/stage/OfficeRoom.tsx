@@ -127,6 +127,14 @@ const BEHAVIOR_EMOJIS: Record<AgentBehavior, string> = {
     thinking: '💭',
 };
 
+// Animation constants
+const REPLAY_GLIDE_SPEED = 3; // pixels per frame for agents moving to meeting positions
+const NORMAL_WALK_SPEED = 2; // pixels per frame for normal walking behavior
+const REPLAY_POSITION_TOLERANCE = 1; // minimum distance for replay position updates
+const WALK_POSITION_TOLERANCE = 2; // minimum distance for normal walk position updates
+const SPEECH_BUBBLE_PERSIST = 999; // frame count to keep speech bubbles visible during replay
+const MAX_DIALOGUE_LENGTH = 80; // max characters in speech bubbles
+
 // ─── Speech Bubble ───
 
 function SpeechBubble({
@@ -1260,7 +1268,7 @@ const MEETING_POSITIONS: Record<string, number> = {
     praxis: 580,
 };
 
-function truncateDialogue(text: string, maxLen = 80): string {
+function truncateDialogue(text: string, maxLen = MAX_DIALOGUE_LENGTH): string {
     const cleaned = text
         .replace(/https?:\/\/\S+/g, '')
         .replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, '$1')
@@ -1430,9 +1438,18 @@ export function OfficeRoom({
 
     // Animation loop - handles position updates and replay state changes
     useInterval(() => {
+        // Track replay state for detecting transitions
+        const wasReplaying = prevReplayingRef.current;
+        const exitingReplay = !isReplaying && wasReplaying;
+
+        // Update ref immediately to avoid repeated exit logic
+        if (isReplaying !== wasReplaying) {
+            prevReplayingRef.current = isReplaying;
+        }
+
         setAgents(prev =>
             prev.map(agent => {
-                // Handle replay mode state changes
+                // Handle replay mode for participants
                 if (isReplaying) {
                     const isParticipant = replayParticipants.has(agent.id);
                     if (isParticipant) {
@@ -1447,17 +1464,17 @@ export function OfficeRoom({
                         if (isSpeaker && currentReplayTurn) {
                             speechBubble = truncateDialogue(
                                 currentReplayTurn.dialogue,
-                                80,
+                                MAX_DIALOGUE_LENGTH,
                             );
-                            speechTick = 999; // Keep showing until turn changes
+                            speechTick = SPEECH_BUBBLE_PERSIST; // Keep showing until turn changes
                         }
 
                         // Glide participants to meeting positions
                         let newX = agent.x;
                         const dx = meetingX - agent.x;
-                        if (Math.abs(dx) > 1) {
+                        if (Math.abs(dx) > REPLAY_POSITION_TOLERANCE) {
                             newX =
-                                agent.x + Math.sign(dx) * Math.min(Math.abs(dx), 3);
+                                agent.x + Math.sign(dx) * Math.min(Math.abs(dx), REPLAY_GLIDE_SPEED);
                         }
 
                         return {
@@ -1470,10 +1487,11 @@ export function OfficeRoom({
                             frame: agent.frame + 1,
                         };
                     }
+                    // Non-participants during replay fall through to normal mode logic
                 }
 
-                // Handle exit from replay mode - return to desks
-                if (!isReplaying && prevReplayingRef.current) {
+                // Handle exit from replay mode - return all agents to desks
+                if (exitingReplay) {
                     const cfg = AGENT_CONFIGS.find(c => c.id === agent.id);
                     return {
                         ...agent,
@@ -1485,15 +1503,15 @@ export function OfficeRoom({
                     };
                 }
 
-                // Normal mode - handle walking and animation
+                // Normal mode - handle walking, animation, and non-participants during replay
                 let newX = agent.x;
                 if (
                     agent.behavior === 'walking' ||
                     agent.behavior === 'coffee'
                 ) {
                     const dx = agent.targetX - agent.x;
-                    if (Math.abs(dx) > 2) {
-                        newX = agent.x + Math.sign(dx) * 2;
+                    if (Math.abs(dx) > WALK_POSITION_TOLERANCE) {
+                        newX = agent.x + Math.sign(dx) * NORMAL_WALK_SPEED;
                     }
                 }
 
