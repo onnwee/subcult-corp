@@ -22,7 +22,7 @@ let failed = 0;
 let warnings = 0;
 
 function pass(msg) {
-    log.debug(msg);
+    log.info(msg);
     passed++;
 }
 
