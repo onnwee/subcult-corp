@@ -194,14 +194,13 @@ Rules for dreaming:
     // 5. Record in ops_dream_cycles
     const sourceMemoryIds = seeds.map(m => m.id);
     const [row] = await sql<[{ id: string }]>`
-        INSERT INTO ops_dream_cycles (agent_id, source_memories, dream_content, dream_type, new_memory_id)
-        VALUES (
-            ${agentId},
-            ${sourceMemoryIds}::uuid[],
-            ${dreamContent.trim()},
-            ${dreamType},
-            ${newMemoryId}
-        )
+        INSERT INTO ops_dream_cycles ${sql({
+            agent_id: agentId,
+            source_memories: sourceMemoryIds,
+            dream_content: dreamContent.trim(),
+            dream_type: dreamType,
+            new_memory_id: newMemoryId,
+        })}
         RETURNING id
     `;
 
@@ -280,7 +279,7 @@ export async function getDreamWithSources(dreamId: string): Promise<{
     const sourceMemories = dream.source_memories.length > 0
         ? await sql<MemoryEntry[]>`
             SELECT * FROM ops_agent_memory
-            WHERE id = ANY(${dream.source_memories}::uuid[])
+            WHERE id = ANY(${dream.source_memories})
             ORDER BY created_at DESC
         `
         : [];
