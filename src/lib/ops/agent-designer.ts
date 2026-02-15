@@ -201,6 +201,13 @@ Respond with valid JSON only, no markdown fencing:
         .toLowerCase()
         .replace(/[^a-z0-9_]/g, '');
 
+    // Validate normalized name is not empty
+    if (!agentName || agentName.length === 0) {
+        throw new Error(
+            `Invalid agent_name: "${parsed.agent_name}" normalized to empty string`,
+        );
+    }
+
     // Check for name collision with existing agents
     const [existing] = await sql<[{ count: number }]>`
         SELECT COUNT(*)::int as count
@@ -209,6 +216,19 @@ Respond with valid JSON only, no markdown fencing:
     `;
     if (existing.count > 0) {
         throw new Error(`Agent "${agentName}" already exists in the registry`);
+    }
+
+    // Check for name collision with pending proposals
+    const [pendingProposal] = await sql<[{ count: number }]>`
+        SELECT COUNT(*)::int as count
+        FROM ops_agent_proposals
+        WHERE agent_name = ${agentName}
+          AND status IN ('proposed', 'voting', 'approved')
+    `;
+    if (pendingProposal.count > 0) {
+        throw new Error(
+            `A proposal for agent "${agentName}" already exists and is pending`,
+        );
     }
 
     // 8. Save proposal
