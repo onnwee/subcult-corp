@@ -214,8 +214,10 @@ export async function GET(req: NextRequest) {
                         candidates: candidates.length,
                         dreamers,
                         completed: dreamResults,
-                        ...(dreamErrors.length > 0 && { errors: dreamErrors }),
                     };
+                    if (dreamErrors.length > 0) {
+                        results.dreams.errors = dreamErrors;
+                    }
                 } else {
                     results.dreams = {
                         window: true,
