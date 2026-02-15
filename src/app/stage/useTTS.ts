@@ -2,7 +2,7 @@
 // Provides play/stop/playAll for transcript turns
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import type { RoundtableTurn } from '@/lib/types';
 
 // Lazy imports — TTS modules reference window.speechSynthesis
@@ -50,16 +50,11 @@ export interface TTSControls {
 export function useTTS(): [TTSState, TTSControls] {
     const [isPlaying, setIsPlaying] = useState(false);
     const [activeTurnIndex, setActiveTurnIndex] = useState(-1);
-    const [isAvailable, setIsAvailable] = useState(false);
+    const [isAvailable, setIsAvailable] = useState(() =>
+        typeof window !== 'undefined' && 'speechSynthesis' in window
+    );
     const [needsUnlock, setNeedsUnlock] = useState(false);
     const cancelledRef = useRef(false);
-
-    // Check availability on mount
-    useEffect(() => {
-        const available =
-            typeof window !== 'undefined' && 'speechSynthesis' in window;
-        setIsAvailable(available);
-    }, []);
 
     const stop = useCallback(async () => {
         cancelledRef.current = true;
