@@ -1,7 +1,6 @@
 // RelationshipGraph — force-directed agent relationship visualization
 // Interactive: click edges for drift history, click nodes for agent details
 'use client';
-'use no memo';
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useRelationships, useMemories } from './hooks';
@@ -305,6 +304,25 @@ function NodeDetailPanel({
         r => r.agent_a === agentId || r.agent_b === agentId,
     );
 
+    // Safety check: if agent config not found, show error
+    if (!agent) {
+        return (
+            <div className='rounded-lg border border-zinc-700/50 bg-zinc-800/80 p-4'>
+                <div className='flex items-center justify-between'>
+                    <span className='text-xs text-zinc-400'>
+                        Agent not found: {agentId}
+                    </span>
+                    <button
+                        onClick={onClose}
+                        className='text-zinc-600 hover:text-zinc-400 text-xs'
+                    >
+                        ✕
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className='rounded-lg border border-zinc-700/50 bg-zinc-800/80 p-4 space-y-3'>
             <div className='flex items-center justify-between'>
@@ -500,12 +518,16 @@ function GraphCanvas({
                 const aff = Number(edge.relationship.affinity);
                 const color = affinityColor(aff);
                 const width = affinityWidth(edge.relationship.total_interactions);
+                // Selection is normalized, so we need to check both directions
+                // Edge is stored as (source, target) but selection uses normalized (a, b)
+                const [normSource, normTarget] = 
+                    edge.source < edge.target 
+                        ? [edge.source, edge.target] 
+                        : [edge.target, edge.source];
                 const isSelected =
                     selection?.type === 'edge' &&
-                    ((selection.source === edge.source &&
-                        selection.target === edge.target) ||
-                        (selection.source === edge.target &&
-                            selection.target === edge.source));
+                    selection.source === normSource &&
+                    selection.target === normTarget;
 
                 return (
                     <g key={`${edge.source}-${edge.target}`}>
@@ -625,9 +647,6 @@ function GraphCanvas({
 export function RelationshipGraph() {
     const { relationships, loading, error } = useRelationships();
     const [selection, setSelection] = useState<Selection | null>(null);
-    const [positions, setPositions] = useState<
-        Map<AgentId, { x: number; y: number }>
-    >(new Map());
 
     // Build edges from relationships
     const edges = useMemo<Edge[]>(() => {
@@ -638,13 +657,25 @@ export function RelationshipGraph() {
         }));
     }, [relationships]);
 
-    // Compute layout
+    // Helper: create empty position map
+    const createEmptyPositionMap = useCallback(
+        () => new Map<AgentId, { x: number; y: number }>(),
+        []
+    );
+
+    // Compute initial layout (memoized to avoid recalculation on every render)
+    const initialLayout = useMemo(() => {
+        if (relationships.length === 0) return createEmptyPositionMap();
+        return computeLayout(AGENT_IDS, edges);
+    }, [relationships, edges, createEmptyPositionMap]);
+
+    // Positions state for manual dragging (lazy initialized from computed layout)
+    const [positions, setPositions] = useState(() => initialLayout);
+
+    // Update positions when layout changes (e.g., when relationships data loads or updates)
     useEffect(() => {
-        if (relationships.length === 0) return;
-        const layout = computeLayout(AGENT_IDS, edges);
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- Initial layout from relationships
-        setPositions(layout);
-    }, [relationships, edges]);
+        setPositions(initialLayout);
+    }, [initialLayout]);
 
     const handleSelectNode = useCallback((id: AgentId) => {
         setSelection(prev =>
@@ -656,12 +687,16 @@ export function RelationshipGraph() {
 
     const handleSelectEdge = useCallback(
         (source: AgentId, target: AgentId) => {
+            // Normalize the pair to match backend storage (alphabetical order)
+            const [normalizedSource, normalizedTarget] = 
+                source < target ? [source, target] : [target, source];
+            
             setSelection(prev =>
                 prev?.type === 'edge' &&
-                prev.source === source &&
-                prev.target === target
+                prev.source === normalizedSource &&
+                prev.target === normalizedTarget
                     ? null
-                    : { type: 'edge', source, target },
+                    : { type: 'edge', source: normalizedSource, target: normalizedTarget },
             );
         },
         [],
@@ -679,15 +714,13 @@ export function RelationshipGraph() {
         setSelection(null);
     }, []);
 
-    // Find selected relationship
+    // Find selected relationship (selection uses normalized agent pairs)
     const selectedRelationship =
         selection?.type === 'edge'
             ? relationships.find(
                   r =>
-                      (r.agent_a === selection.source &&
-                          r.agent_b === selection.target) ||
-                      (r.agent_a === selection.target &&
-                          r.agent_b === selection.source),
+                      r.agent_a === selection.source &&
+                      r.agent_b === selection.target,
               )
             : undefined;
 
