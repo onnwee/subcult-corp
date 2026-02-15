@@ -9,6 +9,7 @@ import {
     type TriggerCondition,
 } from './condition-evaluator';
 import { logger } from '@/lib/logger';
+import { AGENT_IDS } from '@/lib/agents';
 
 const log = logger.child({ module: 'triggers' });
 
@@ -723,15 +724,14 @@ async function checkGovernanceProposalCreated(
     const proposedStr = JSON.stringify(proposal.proposed_value, null, 0);
     const topic = `Governance debate: ${proposal.proposer} proposes changing "${proposal.policy_key}" from ${currentStr} to ${proposedStr}. Rationale: ${proposal.rationale}`;
 
-    // Create a debate roundtable with ALL 6 agents
-    const allAgents = ['chora', 'subrosa', 'thaum', 'praxis', 'mux', 'primus'];
+    // Create a debate roundtable with ALL agents
     const [session] = await sql<[{ id: string }]>`
         INSERT INTO ops_roundtable_sessions (
             format, topic, participants, status, scheduled_for, metadata
         ) VALUES (
             'debate',
             ${topic.slice(0, 1000)},
-            ${allAgents},
+            ${AGENT_IDS},
             'pending',
             NOW(),
             ${sql.json({

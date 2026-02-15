@@ -10,6 +10,10 @@ import { sendToAgentTool } from './tools/send-to-agent';
 import { spawnDroidTool } from './tools/spawn-droid';
 import { checkDroidTool } from './tools/check-droid';
 import { memorySearchTool } from './tools/memory-search';
+import {
+    proposePolicyChangeTool,
+    createProposePolicyChangeExecute,
+} from './tools/propose-policy-change';
 
 /** All registered native tools */
 const ALL_TOOLS: NativeTool[] = [
@@ -22,12 +26,14 @@ const ALL_TOOLS: NativeTool[] = [
     spawnDroidTool,
     checkDroidTool,
     memorySearchTool,
+    proposePolicyChangeTool,
 ];
 
 /**
  * Get all tools available to a specific agent.
  * Returns ToolDefinition[] suitable for passing directly to the LLM.
  * For file_write, binds the agentId into the execute function for ACL enforcement.
+ * For propose_policy_change, binds the agentId to track who is proposing.
  */
 export function getAgentTools(agentId: AgentId): ToolDefinition[] {
     return ALL_TOOLS
@@ -37,6 +43,13 @@ export function getAgentTools(agentId: AgentId): ToolDefinition[] {
             // Bind agentId into file_write's execute for path ACL enforcement
             if (tool.name === 'file_write') {
                 return { ...tool, execute: createFileWriteExecute(agentId) };
+            }
+            // Bind agentId into propose_policy_change's execute to track proposer
+            if (tool.name === 'propose_policy_change') {
+                return {
+                    ...tool,
+                    execute: createProposePolicyChangeExecute(agentId),
+                };
             }
             return tool;
         });
