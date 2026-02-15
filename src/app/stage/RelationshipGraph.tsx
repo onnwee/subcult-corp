@@ -518,12 +518,16 @@ function GraphCanvas({
                 const aff = Number(edge.relationship.affinity);
                 const color = affinityColor(aff);
                 const width = affinityWidth(edge.relationship.total_interactions);
+                // Selection is normalized, so we need to check both directions
+                // Edge is stored as (source, target) but selection uses normalized (a, b)
+                const [normSource, normTarget] = 
+                    edge.source < edge.target 
+                        ? [edge.source, edge.target] 
+                        : [edge.target, edge.source];
                 const isSelected =
                     selection?.type === 'edge' &&
-                    ((selection.source === edge.source &&
-                        selection.target === edge.target) ||
-                        (selection.source === edge.target &&
-                            selection.target === edge.source));
+                    selection.source === normSource &&
+                    selection.target === normTarget;
 
                 return (
                     <g key={`${edge.source}-${edge.target}`}>
