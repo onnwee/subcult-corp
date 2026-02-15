@@ -236,6 +236,17 @@ async function analyzeBatch(
         )
         .join('\n\n');
 
+    // Rough token estimation (4 chars ≈ 1 token) to warn about potential overflow
+    const estimatedInputTokens = Math.ceil(memorySummary.length / 4);
+    if (estimatedInputTokens > 8000) {
+        log.warn('High token count in archaeology batch', {
+            agentId,
+            estimatedInputTokens,
+            memoryCount: memories.length,
+            recommendation: 'Consider reducing batch size',
+        });
+    }
+
     const systemPrompt = `You are a memory archaeologist for the SubCult AI collective. Your task is to perform deep analysis of agent memories, looking for hidden patterns, contradictions, emergent behaviors, recurring echoes, and personality drift.
 
 Analyze the provided memories and identify findings of these types: ${typesLabel}
@@ -324,7 +335,15 @@ Rules:
             }>;
         };
 
-        if (!parsed.findings || !Array.isArray(parsed.findings)) return [];
+        // Validate JSON structure
+        if (!parsed.findings || !Array.isArray(parsed.findings)) {
+            log.warn('Invalid JSON structure in archaeology response', {
+                hasFindings: !!parsed.findings,
+                isArray: Array.isArray(parsed.findings),
+                keys: Object.keys(parsed),
+            });
+            return [];
+        }
 
         // Map memory_index back to memory_id and validate
         const validTypes = new Set<string>([
@@ -339,23 +358,45 @@ Rules:
             .filter(
                 f => validTypes.has(f.finding_type) && f.title && f.description,
             )
-            .map(f => ({
-                finding_type: f.finding_type as FindingType,
-                title: f.title,
-                description: f.description,
-                evidence: (f.evidence ?? [])
+            .map(f => {
+                const evidenceWithWarnings = (f.evidence ?? [])
                     .map(e => {
                         const memory = memories[e.memory_index - 1];
+                        if (!memory) {
+                            log.warn(
+                                'LLM referenced invalid memory_index in evidence',
+                                {
+                                    memory_index: e.memory_index,
+                                    available_count: memories.length,
+                                    finding_title: f.title,
+                                },
+                            );
+                        }
                         return {
                             memory_id: memory?.id ?? 'unknown',
                             excerpt: e.excerpt ?? '',
                             relevance: e.relevance ?? '',
                         };
                     })
-                    .filter(e => e.memory_id !== 'unknown'),
-                confidence: Math.max(0, Math.min(1, f.confidence ?? 0.5)),
-                related_agents: f.related_agents ?? [],
-            }));
+                    .filter(e => e.memory_id !== 'unknown');
+
+                // Warn if all evidence was filtered out
+                if (f.evidence?.length > 0 && evidenceWithWarnings.length === 0) {
+                    log.warn('All evidence filtered due to invalid memory indices', {
+                        finding_title: f.title,
+                        evidence_count: f.evidence.length,
+                    });
+                }
+
+                return {
+                    finding_type: f.finding_type as FindingType,
+                    title: f.title,
+                    description: f.description,
+                    evidence: evidenceWithWarnings,
+                    confidence: Math.max(0, Math.min(1, f.confidence ?? 0.5)),
+                    related_agents: f.related_agents ?? [],
+                };
+            });
     } catch (err) {
         log.error('Failed to parse archaeology findings', {
             error: err,

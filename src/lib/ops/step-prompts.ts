@@ -181,6 +181,24 @@ const STEP_INSTRUCTIONS: Partial<Record<StepKind, StepInstructionFn>> = {
         `Based on the payload, propose a multi-step workflow.\n` +
         `Each step should specify: agent, step kind, and expected output.\n` +
         `Write the workflow proposal as a structured plan.\n`,
+
+    memory_archaeology: (ctx, today, outputDir) =>
+        `Perform a memory archaeology dig to analyze agent memories for patterns, contradictions, emergence, echoes, and drift.\n` +
+        `Use the memory_search tool to retrieve relevant memories from the collective.\n` +
+        `Analyze the memories for:\n` +
+        `  - **Patterns**: Recurring themes, behaviors, or ideas across multiple memories\n` +
+        `  - **Contradictions**: Conflicting memories or opposing viewpoints\n` +
+        `  - **Emergence**: New behaviors, ideas, or perspectives that appear in recent memories\n` +
+        `  - **Echoes**: Specific phrases, metaphors, or ideas that reappear across contexts\n` +
+        `  - **Drift**: How perspectives, tone, or beliefs have shifted over time\n` +
+        `Write your findings to ${outputDir}/${today}__archaeology__findings__${slugify(ctx.missionTitle)}__${ctx.agentId}__v01.md using file_write.\n` +
+        `For each finding, include:\n` +
+        `  1. Finding type (pattern/contradiction/emergence/echo/drift)\n` +
+        `  2. A concise title\n` +
+        `  3. Detailed description with evidence from specific memories\n` +
+        `  4. Confidence level (0.0 to 1.0)\n` +
+        `  5. Related agent IDs\n` +
+        `Be specific and evidence-based. Include memory IDs and excerpts to support your findings.\n`,
 };
 
 function slugify(text: string): string {
