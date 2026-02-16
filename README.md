@@ -23,7 +23,7 @@ A self-hosted, closed-loop multi-agent system with 6 AI agents running autonomou
 │                                ┌────────┴────────┐              │
 │                                │ PostgreSQL 16   │              │
 │                                │ + pgvector      │              │
-│                                │ (24 tables)     │              │
+│                                │ (32 tables)     │              │
 │                                └─────────────────┘              │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -231,29 +231,37 @@ Run `make help` for the full list. Highlights:
 
 ## Database Schema
 
-22 tables across `db/migrations/` (001 → 022):
+32 tables across `db/migrations/`:
 
-| Table                     | Purpose                                              |
-| ------------------------- | ---------------------------------------------------- |
-| `ops_mission_proposals`   | Agent proposals (requests for work)                  |
-| `ops_missions`            | Approved missions                                    |
-| `ops_mission_steps`       | Execution steps within missions (+ deps)             |
-| `ops_agent_events`        | Event stream (everything that happens)               |
-| `ops_policy`              | Key-value policy configuration                       |
-| `ops_trigger_rules`       | Conditions evaluated each heartbeat                  |
-| `ops_agent_reactions`     | Agent-to-agent reaction queue                        |
-| `ops_action_runs`         | Audit log for heartbeat runs                         |
-| `ops_roundtable_sessions` | Conversation sessions (worker queue)                 |
-| `ops_roundtable_turns`    | Individual dialogue turns                            |
-| `ops_agent_memory`        | Agent memories with confidence + pgvector embeddings |
-| `ops_agent_relationships` | Pairwise affinity between agents                     |
-| `ops_initiative_queue`    | Self-generated work items                            |
-| `ops_agent_registry`      | Agent metadata and configuration                     |
-| `ops_agent_skills`        | Agent skill/tool definitions                         |
-| `ops_llm_usage`           | LLM cost and token tracking                          |
-| `ops_cron_schedules`      | Scheduled agent sessions (cron expressions)          |
-| `ops_agent_sessions`      | Tool-augmented agent execution records               |
-| `ops_projects`            | Project tracking and metadata                        |
+| Table                       | Purpose                                              |
+| --------------------------- | ---------------------------------------------------- |
+| `ops_mission_proposals`     | Agent proposals (requests for work)                  |
+| `ops_missions`              | Approved missions                                    |
+| `ops_mission_steps`         | Execution steps within missions (+ deps)             |
+| `ops_agent_events`          | Event stream (everything that happens)               |
+| `ops_policy`                | Key-value policy configuration                       |
+| `ops_trigger_rules`         | Conditions evaluated each heartbeat                  |
+| `ops_agent_reactions`       | Agent-to-agent reaction queue                        |
+| `ops_action_runs`           | Audit log for heartbeat runs                         |
+| `ops_roundtable_sessions`   | Conversation sessions (worker queue)                 |
+| `ops_roundtable_turns`      | Individual dialogue turns                            |
+| `ops_agent_memory`          | Agent memories with confidence + pgvector embeddings |
+| `ops_agent_relationships`   | Pairwise affinity between agents                     |
+| `ops_initiative_queue`      | Self-generated work items                            |
+| `ops_agent_registry`        | Agent metadata and configuration                     |
+| `ops_agent_skills`          | Agent skill/tool definitions                         |
+| `ops_llm_usage`             | LLM cost and token tracking                          |
+| `ops_cron_schedules`        | Scheduled agent sessions (cron expressions)          |
+| `ops_agent_sessions`        | Tool-augmented agent execution records               |
+| `ops_projects`              | Project tracking and metadata                        |
+| `ops_sanctum_conversations` | Sanctum chat sessions                                |
+| `ops_sanctum_messages`      | Individual Sanctum chat messages                     |
+| `ops_daily_digests`         | Daily agent digest generations                       |
+| `ops_content_drafts`        | Content pipeline drafts                              |
+| `ops_governance_proposals`  | Governance proposals and votes                       |
+| `ops_dream_cycles`          | Dream cycle tracking                                 |
+| `ops_agent_proposals`       | Agent-generated proposals                            |
+| `ops_memory_archaeology`    | Memory archaeology sessions                          |
 
 ## Key Concepts
 
