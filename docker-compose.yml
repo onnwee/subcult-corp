@@ -70,6 +70,23 @@ services:
         networks:
             - internal
 
+    # ── Sanctum WebSocket Server ──
+    # Real-time multi-agent chat interface
+    sanctum:
+        build: .
+        container_name: subcult-sanctum
+        restart: unless-stopped
+        command: ['node', '--import=tsx', 'scripts/sanctum-server/server.mjs']
+        depends_on:
+            postgres:
+                condition: service_healthy
+        env_file:
+            - .env.local
+        ports:
+            - '127.0.0.1:3011:3011'
+        networks:
+            - internal
+
 volumes:
     pgdata:
     workspace:
