@@ -5,30 +5,30 @@ A self-hosted, closed-loop multi-agent system with 6 AI agents running autonomou
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     Docker Compose                       │
-│                                                          │
-│  ┌──────────┐  ┌──────────────┐  ┌───────────────────┐  │
-│  │ Next.js  │  │   Unified    │  │     Toolbox       │  │
-│  │   App    │  │   Worker     │  │    (Debian)       │  │
-│  │ API +    │  │  4 queues:   │  │  bash, node,      │  │
-│  │ Frontend │  │  sessions,   │──│  python, gh,      │  │
-│  │ + Cron   │  │  roundtable, │  │  ripgrep, jq      │  │
-│  │          │  │  missions,   │  │  (sandboxed)      │  │
-│  │          │  │  initiative  │  └───────────────────┘  │
-│  └────┬─────┘  └──────┬───────┘                         │
-│       │               │                                  │
-│       └───────────────┤                                  │
-│                       │                                  │
-│              ┌────────┴────────┐                         │
-│              │ PostgreSQL 16   │                         │
-│              │ + pgvector      │                         │
-│              │ (22 tables)     │                         │
-│              └─────────────────┘                         │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                       Docker Compose                              │
+│                                                                   │
+│  ┌──────────┐  ┌──────────────┐  ┌──────────────┐  ┌─────────┐  │
+│  │ Next.js  │  │   Unified    │  │   Sanctum    │  │ Toolbox │  │
+│  │   App    │  │   Worker     │  │  WebSocket   │  │(Debian) │  │
+│  │ API +    │  │  4 queues:   │  │    Server    │  │ bash,   │  │
+│  │ Frontend │  │  sessions,   │  │  Real-time   │──│ node,   │  │
+│  │ + Cron   │  │  roundtable, │  │  multi-agent │  │ python, │  │
+│  │          │  │  missions,   │  │     chat     │  │ gh, jq  │  │
+│  │          │  │  initiative  │  └──────────────┘  └─────────┘  │
+│  └────┬─────┘  └──────┬───────┘         │                       │
+│       │               │                 │                       │
+│       └───────────────┴─────────────────┤                       │
+│                                         │                       │
+│                                ┌────────┴────────┐              │
+│                                │ PostgreSQL 16   │              │
+│                                │ + pgvector      │              │
+│                                │ (32 tables)     │              │
+│                                └─────────────────┘              │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-**Stack**: Next.js 16 · React 19 · TypeScript 5 · PostgreSQL 16 + pgvector · Tailwind 4 · OpenRouter SDK · Docker
+**Stack**: Next.js 16 · React 19 · TypeScript 5 · PostgreSQL 16 + pgvector · Tailwind 4 · OpenRouter SDK · WebSocket · Docker
 
 ## The Loop
 
@@ -95,6 +95,30 @@ Tool-augmented LLM execution loop (`src/lib/tools/agent-session.ts`):
 5. Write result to DB, emit event, track cost
 
 Sessions are queued in `ops_agent_sessions` and picked up by the unified worker. Sources include cron schedules, API requests, missions, and inter-agent messages.
+
+## Sanctum — Multi-Agent Chat
+
+The **Sanctum** is SubCult's private council chamber — a real-time WebSocket-powered chat interface where you converse with six AI agents who already know each other, have opinions, and will discuss your questions among themselves.
+
+### Key Features
+
+- **Direct address**: `@chora what do you think?` → single agent responds
+- **Open mode**: `What should we do?` → 2-4 relevant agents weigh in
+- **Whisper mode**: `/whisper @agent private message` → 1:1 private chat
+- **Roundtable**: `/roundtable topic` → live turn-by-turn debate
+- **Agent summoning**: Agents can pull each other into conversations
+- **Cross-talk**: Agents respond to each other's takes
+- **Real-time**: WebSocket server streams typing indicators and responses
+
+Access at `/sanctum` or run the standalone server:
+
+```bash
+npm run sanctum
+# or
+docker-compose up sanctum
+```
+
+See [`docs/SANCTUM.md`](docs/SANCTUM.md) for full documentation.
 
 ## Getting Started
 
@@ -207,29 +231,37 @@ Run `make help` for the full list. Highlights:
 
 ## Database Schema
 
-22 tables across `db/migrations/` (001 → 022):
+32 tables across `db/migrations/`:
 
-| Table                     | Purpose                                              |
-| ------------------------- | ---------------------------------------------------- |
-| `ops_mission_proposals`   | Agent proposals (requests for work)                  |
-| `ops_missions`            | Approved missions                                    |
-| `ops_mission_steps`       | Execution steps within missions (+ deps)             |
-| `ops_agent_events`        | Event stream (everything that happens)               |
-| `ops_policy`              | Key-value policy configuration                       |
-| `ops_trigger_rules`       | Conditions evaluated each heartbeat                  |
-| `ops_agent_reactions`     | Agent-to-agent reaction queue                        |
-| `ops_action_runs`         | Audit log for heartbeat runs                         |
-| `ops_roundtable_sessions` | Conversation sessions (worker queue)                 |
-| `ops_roundtable_turns`    | Individual dialogue turns                            |
-| `ops_agent_memory`        | Agent memories with confidence + pgvector embeddings |
-| `ops_agent_relationships` | Pairwise affinity between agents                     |
-| `ops_initiative_queue`    | Self-generated work items                            |
-| `ops_agent_registry`      | Agent metadata and configuration                     |
-| `ops_agent_skills`        | Agent skill/tool definitions                         |
-| `ops_llm_usage`           | LLM cost and token tracking                          |
-| `ops_cron_schedules`      | Scheduled agent sessions (cron expressions)          |
-| `ops_agent_sessions`      | Tool-augmented agent execution records               |
-| `ops_projects`            | Project tracking and metadata                        |
+| Table                       | Purpose                                              |
+| --------------------------- | ---------------------------------------------------- |
+| `ops_mission_proposals`     | Agent proposals (requests for work)                  |
+| `ops_missions`              | Approved missions                                    |
+| `ops_mission_steps`         | Execution steps within missions (+ deps)             |
+| `ops_agent_events`          | Event stream (everything that happens)               |
+| `ops_policy`                | Key-value policy configuration                       |
+| `ops_trigger_rules`         | Conditions evaluated each heartbeat                  |
+| `ops_agent_reactions`       | Agent-to-agent reaction queue                        |
+| `ops_action_runs`           | Audit log for heartbeat runs                         |
+| `ops_roundtable_sessions`   | Conversation sessions (worker queue)                 |
+| `ops_roundtable_turns`      | Individual dialogue turns                            |
+| `ops_agent_memory`          | Agent memories with confidence + pgvector embeddings |
+| `ops_agent_relationships`   | Pairwise affinity between agents                     |
+| `ops_initiative_queue`      | Self-generated work items                            |
+| `ops_agent_registry`        | Agent metadata and configuration                     |
+| `ops_agent_skills`          | Agent skill/tool definitions                         |
+| `ops_llm_usage`             | LLM cost and token tracking                          |
+| `ops_cron_schedules`        | Scheduled agent sessions (cron expressions)          |
+| `ops_agent_sessions`        | Tool-augmented agent execution records               |
+| `ops_projects`              | Project tracking and metadata                        |
+| `ops_sanctum_conversations` | Sanctum chat sessions                                |
+| `ops_sanctum_messages`      | Individual Sanctum chat messages                     |
+| `ops_daily_digests`         | Daily agent digest generations                       |
+| `ops_content_drafts`        | Content pipeline drafts                              |
+| `ops_governance_proposals`  | Governance proposals and votes                       |
+| `ops_dream_cycles`          | Dream cycle tracking                                 |
+| `ops_agent_proposals`       | Agent-generated proposals                            |
+| `ops_memory_archaeology`    | Memory archaeology sessions                          |
 
 ## Key Concepts
 
@@ -345,7 +377,7 @@ Development is tracked across 17 epics and 114 issues. See [issue #114](https://
 | 2     | SSE Real-time Events           | Planned     |
 | 3     | Memory & Relationship Explorer | Planned     |
 | 4     | Ask Room                       | Planned     |
-| 5     | Sanctum — Multi-Agent Chat     | Planned     |
+| 5     | Sanctum — Multi-Agent Chat     | ✅ Complete |
 | 6     | Daily Digest & Reporting       | ✅ Complete |
 | 7     | Content Pipeline               | ✅ Complete |
 | 8     | Replay System                  | Planned     |
