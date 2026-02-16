@@ -76,7 +76,7 @@ services:
         build: .
         container_name: subcult-sanctum
         restart: unless-stopped
-        command: ['node', '--import=tsx', 'scripts/sanctum-server/server.mjs']
+        command: ['node', 'scripts/sanctum-server/dist/server.js']
         depends_on:
             postgres:
                 condition: service_healthy

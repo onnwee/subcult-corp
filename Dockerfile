@@ -22,6 +22,9 @@ RUN npm run build
 # Bundle the unified worker (resolves @/ path aliases from src/lib/)
 RUN node scripts/unified-worker/build.mjs
 
+# Bundle the sanctum server
+RUN node scripts/sanctum-server/build.mjs
+
 # ── Production image ──
 FROM base AS runner
 WORKDIR /app
@@ -37,8 +40,9 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copy unified worker bundle + workspace data + migrations
+# Copy unified worker bundle + sanctum bundle + workspace data + migrations
 COPY --from=builder /app/scripts/unified-worker/dist ./scripts/unified-worker/dist
+COPY --from=builder /app/scripts/sanctum-server/dist ./scripts/sanctum-server/dist
 COPY --from=builder /app/workspace ./workspace
 COPY --from=builder /app/db ./db
 
