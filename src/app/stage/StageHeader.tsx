@@ -199,24 +199,24 @@ export function StageHeader({
                         </>
                     }
                 </button>
+            </div>
 
-                {/* View toggle */}
-                <div className='flex gap-1 rounded-lg bg-zinc-800/50 p-1 border border-zinc-700/50'>
-                    {views.map(v => (
-                        <button
-                            key={v.key}
-                            onClick={() => onViewChange(v.key)}
-                            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                                view === v.key ?
-                                    'bg-zinc-700 text-zinc-100'
-                                :   'text-zinc-400 hover:text-zinc-300 hover:bg-zinc-800'
-                            }`}
-                        >
-                            {v.icon}
-                            <span className='hidden sm:inline'>{v.label}</span>
-                        </button>
-                    ))}
-                </div>
+            {/* View toggle - separate row */}
+            <div className='flex gap-1 rounded-lg bg-zinc-800/50 p-1 border border-zinc-700/50 overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-700'>
+                {views.map(v => (
+                    <button
+                        key={v.key}
+                        onClick={() => onViewChange(v.key)}
+                        className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                            view === v.key ?
+                                'bg-zinc-700 text-zinc-100'
+                            :   'text-zinc-400 hover:text-zinc-300 hover:bg-zinc-800'
+                        }`}
+                    >
+                        {v.icon}
+                        <span className='hidden sm:inline'>{v.label}</span>
+                    </button>
+                ))}
             </div>
 
             {/* Stats bar */}
@@ -235,11 +235,11 @@ function StatsBar({ stats }: { stats: SystemStats }) {
             <StatCard label='Events' value={stats.totalEvents} />
             <StatCard label='Active Missions' value={stats.activeMissions} />
             <StatCard label='Conversations' value={stats.totalConversations} />
-            <div className='flex-1 rounded-lg bg-zinc-800/50 border border-zinc-700/50 px-4 py-3'>
+            <div className='flex-1 rounded-lg bg-zinc-800/50 border border-zinc-700/50 px-4 py-3 min-w-0'>
                 <div className='text-[10px] uppercase tracking-wider text-zinc-500'>
                     Agent Memories
                 </div>
-                <div className='flex gap-3 mt-1'>
+                <div className='flex gap-2 mt-1 flex-wrap overflow-hidden max-h-6'>
                     {Object.entries(stats.agentMemories).map(
                         ([agent, count]) => {
                             const agentId = agent as AgentId;
